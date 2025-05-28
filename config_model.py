@@ -40,6 +40,7 @@ class FitatuCredentials(BaseModel):
     email: str
     password: str
     api_secret: str
+    user_id: str
 
 class User(BaseModel):
     name: str

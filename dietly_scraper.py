@@ -1,13 +1,15 @@
 import logging
 from typing import Optional, Callable, Any
 from playwright.async_api import async_playwright, BrowserContext, APIRequestContext
-from config_model import SitesConfig, DietlyCredentials
+from config_model import Site, DietlyCredentials
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 class DietlyScraperAPIError(Exception): pass
 
 class DietlyScraper:
-    def __init__(self, sites: SitesConfig, credentials: DietlyCredentials, headless: bool = True):
-        self.sites = sites
+    def __init__(self, site: Site, credentials: DietlyCredentials, headless: bool = True):
+        self.site = site
         self.credentials = credentials
         self.headless = headless
 
@@ -19,12 +21,12 @@ class DietlyScraper:
         headers = {
             "Content-Type": "application/x-www-form-urlencoded",
             "Accept": "application/json, text/plain, */*",
-            "Origin": self.sites.dietly.base_url,
-            "Referer": self.sites.dietly.base_url,
+            "Origin": self.site.base_url,
+            "Referer": self.site.base_url,
             "User-Agent": "Mozilla/5.0"
         }
         resp = await request_context.post(
-            self.sites.dietly.login_url,
+            self.site.login_url,
             data=f"username={self.credentials.email}&password={self.credentials.password}&remember-me=false",
             headers=headers
         )
@@ -48,7 +50,7 @@ class DietlyScraper:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=self.headless)
             context = await browser.new_context()
-            api_context = await p.request.new_context(base_url=self.sites.dietly.base_url)
+            api_context = await p.request.new_context(base_url=self.site.base_url)
             await self.login_with_api(api_context)
             await self.set_cookies_from_api(context, api_context)
             page = await context.new_page()
@@ -72,7 +74,7 @@ class DietlyScraper:
             await context.route("**/*", route_handler)
 
             try:
-                await page.goto(self.sites.dietly.base_url + "/profil-dietly", wait_until="networkidle")
+                await page.goto(self.site.base_url + "/profil-dietly", wait_until="networkidle")
                 for _ in range(timeout * 2):
                     if api_captured: break
                     await page.wait_for_timeout(500)
