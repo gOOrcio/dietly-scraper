@@ -1,11 +1,12 @@
 from menu_response_model import MenuResponse
 from dietly_scraper import DietlyScraper, DietlyScraperAPIError
-from config_model import Config
+from config_model import SitesConfig, UsersConfig
 
 async def main():
     """Main entry point for Dietly menu scraping."""
-    config = Config.load()
-    scraper = DietlyScraper(config, config.users[0].dietly_credentials)
+    sites = SitesConfig.load("sites.yaml")
+    users = UsersConfig.load("users.yaml")
+    scraper = DietlyScraper(sites, users.users[0].dietly_credentials)
     try:
         today_menu = await scraper.login_and_capture_api()
         if today_menu:
