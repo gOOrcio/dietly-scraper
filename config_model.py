@@ -1,0 +1,34 @@
+from typing import List
+from pydantic import BaseModel
+
+class SitesConfig(BaseModel):
+    dietly: str
+    fitatu: str
+
+class User(BaseModel):
+    email: str
+    password: str
+
+class Config(BaseModel):
+    sites: SitesConfig
+    users: List[User]
+
+    @staticmethod
+    def load(path: str = "config.yaml") -> "Config":
+        """Load configuration from a YAML or JSON file."""
+        from pathlib import Path
+        import yaml
+        import json
+        config_path = Path(path)
+        if not config_path.exists():
+            raise FileNotFoundError(f"Config file not found: {path}")
+        if config_path.suffix in [".yaml", ".yml"]:
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+        elif config_path.suffix == ".json":
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        else:
+            raise ValueError("Unsupported config file format. Use .json or .yaml/.yml")
+        return Config.model_validate(data)
+
