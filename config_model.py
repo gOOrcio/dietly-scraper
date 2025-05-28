@@ -2,6 +2,8 @@ from typing import List
 from pydantic import BaseModel
 
 class SitesConfig(BaseModel):
+    dietly_login: str
+    dietly_menu: str
     dietly: str
     fitatu: str
 
