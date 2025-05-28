@@ -1,15 +1,28 @@
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel
 
-class SitesConfig(BaseModel):
-    dietly_login: str
-    dietly_menu: str
-    dietly: str
-    fitatu: str
+class Site(BaseModel):
+    base_url: Optional[str] = None
+    login_url: Optional[str] = None
+    api_url: Optional[str] = None
 
-class User(BaseModel):
+class SitesConfig(BaseModel):
+    dietly: Site
+    fitatu: Site
+
+class DietlyCredentials(BaseModel):
     email: str
     password: str
+
+class FitatuCredentials(BaseModel):
+    email: str
+    password: str
+    api_secret: str
+
+class User(BaseModel):
+    name: str
+    dietly_credentials: DietlyCredentials
+    fitatu_credentials: FitatuCredentials
 
 class Config(BaseModel):
     sites: SitesConfig
@@ -33,4 +46,3 @@ class Config(BaseModel):
         else:
             raise ValueError("Unsupported config file format. Use .json or .yaml/.yml")
         return Config.model_validate(data)
-
