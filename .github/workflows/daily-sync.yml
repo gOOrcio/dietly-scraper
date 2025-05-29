@@ -26,6 +26,7 @@ jobs:
     
     - name: Create config files from secrets
       run: |
+        mkdir -p config
         echo '${{ secrets.USERS_YAML }}' > config/users.yaml
         echo '${{ secrets.SITES_YAML }}' > config/sites.yaml
     
