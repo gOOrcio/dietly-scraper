@@ -12,8 +12,7 @@ logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 class BaseAPIClient(ABC):
     """Base class for API clients with shared httpx request handling."""
 
-    def __init__(self, headless: bool = True):
-        self.headless = headless  # Keep for backwards compatibility, not used with httpx
+    def __init__(self):
         self._headers: Dict[str, str] = {}
         self._client: Optional[httpx.AsyncClient] = None
 
