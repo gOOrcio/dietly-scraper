@@ -132,29 +132,6 @@ tail -f logs/scraper_*.log
 - ✅ Execution history and logs
 
 ## 📱 Mobile Notifications
-
-Get instant alerts when sync jobs fail! Choose your preferred method:
-
-### 🥇 **Telegram Bot (Recommended)**
-
-**Setup:**
-1. **Create Bot:**
-   - Message `@BotFather` on Telegram
-   - Send `/newbot` → Choose name → Save **Bot Token**
-
-2. **Get Chat ID:**
-   - Message your bot anything
-   - Visit: `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
-   - Copy your `chat.id` from the JSON response
-
-3. **Add GitHub Secrets:**
-   ```
-   TELEGRAM_BOT_TOKEN: 1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
-   TELEGRAM_CHAT_ID: 123456789
-   ALWAYS_NOTIFY: true  # Optional: get success notifications too
-   ```
-
-**Sample Notification:**
 ```
 🍽️ Dietly Sync Report
 
