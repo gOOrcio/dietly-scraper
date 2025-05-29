@@ -4,17 +4,18 @@
 
 # Dietly Menu Synchronizer
 
-A Python application that automatically syncs meal data from [Dietly.pl](https://dietly.pl) to [Fitatu.com](https://fitatu.com) using modern HTTP APIs. Perfect for users who want to track their Dietly meals in Fitatu without manual data entry.
+A production-ready Python application that automatically syncs meal data from [Dietly.pl](https://dietly.pl) to [Fitatu.com](https://fitatu.com) using modern APIs and Playwright browser automation. Features clean architecture, comprehensive error handling, and multiple deployment options.
 
 ## 🚀 Features
 
-- **Automated Daily Sync**: Runs via GitHub Actions or locally
-- **HTTP API Integration**: Fast, reliable API calls using httpx
-- **Smart Error Handling**: Graceful handling of missing meals and API errors
+- **Automated Daily Sync**: Runs via GitHub Actions, Docker, or cron jobs
+- **Clean Architecture**: Modular design following SOLID principles
+- **Smart Error Handling**: Robust handling of missing meals, API errors, and timeouts
 - **Multi-User Support**: Configure multiple Dietly/Fitatu account pairs
-- **Docker Support**: Ready-to-deploy containerized application
-- **Comprehensive Logging**: Detailed execution logs and error reporting
+- **Viking-Style Logic**: Search-first, create-only-if-not-found approach
+- **Comprehensive Logging**: Detailed execution logs with proper exit codes
 - **Mobile Notifications**: Multiple notification options for sync status
+- **Configuration-Driven**: YAML-based configuration with validation
 
 ## 📋 Prerequisites
 
@@ -43,23 +44,24 @@ uv sync
 Copy the example files and configure them with your credentials:
 
 ```bash
-cp users.yaml.example users.yaml
-cp sites.yaml.example sites.yaml
+cp config/users.yaml.example config/users.yaml
+cp config/sites.yaml.example config/sites.yaml
 ```
 
-### 2. Configure Sites (sites.yaml)
+### 2. Configure Sites (config/sites.yaml)
 
 ```yaml
 dietly:
   base_url: "https://dietly.pl"
-  login_url: "https://dietly.pl/api/auth/login"
+  login_url: "https://dietly.pl/login"
+  api_url: "https://dietly.pl/api"
 
 fitatu:
   base_url: "https://fitatu.com"
   api_url: "https://pl-pl.fitatu.com/api"
 ```
 
-### 3. Configure Users (users.yaml)
+### 3. Configure Users (config/users.yaml)
 
 ```yaml
 users:
@@ -73,7 +75,7 @@ users:
       api_secret: "your-fitatu-api-secret"
 ```
 
-> ⚠️ **Security Note**: Keep `users.yaml` private and never commit credentials to version control.
+> ⚠️ **Security Note**: Keep `config/users.yaml` private and never commit credentials to version control.
 
 ## 🚀 Quick Start
 
@@ -98,8 +100,8 @@ tail -f logs/scraper_*.log
 
 1. Push code to GitHub
 2. Add repository secrets:
-   - `USERS_YAML`: Content of your users.yaml
-   - `SITES_YAML`: Content of your sites.yaml
+   - `USERS_YAML`: Content of your config/users.yaml
+   - `SITES_YAML`: Content of your config/sites.yaml
 3. Workflow runs daily at 2:00 AM UTC automatically
 
 **Benefits:**
@@ -109,6 +111,7 @@ tail -f logs/scraper_*.log
 - ✅ Execution history and logs
 
 ## 📱 Mobile Notifications
+
 ```
 🍽️ Dietly Sync Report
 
@@ -168,7 +171,7 @@ crontab -e
 
 ## 🔧 Configuration Reference
 
-### Constants (constants.py)
+### Constants (src/utils/constants.py)
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -252,17 +255,17 @@ The application distinguishes between different scenarios:
 
 ```bash
 # Test configuration loading
-uv run python -c "from config_model import SitesConfig, UsersConfig; print('✅ Config valid')"
+uv run python -c "from src.models.config_model import SitesConfiguration, UsersConfiguration; print('✅ Config valid')"
 
 # Test API connectivity
 uv run python -c "
 import asyncio
-from fitatu_client import FitatuClient
-from config_model import SitesConfig, UsersConfig
+from src.clients.fitatu_client import FitatuClient
+from src.models.config_model import SitesConfiguration, UsersConfiguration
 
 async def test():
-    sites = SitesConfig.load('sites.yaml')
-    users = UsersConfig.load('users.yaml')
+    sites = SitesConfiguration.load_from_file('config/sites.yaml')
+    users = UsersConfiguration.load_from_file('config/users.yaml')
     client = FitatuClient(sites.fitatu, users.users[0].fitatu_credentials, 'Test')
     result = await client.login()
     print('✅ Fitatu connection successful' if result else '❌ Fitatu login failed')
@@ -277,27 +280,55 @@ asyncio.run(test())
 
 ```
 dietly-scraper/
-├── 📁 .github/workflows/    # GitHub Actions
-├── 📄 main.py              # Application entry point
-├── 📄 dietly_client.py    # Dietly web scraping
-├── 📄 fitatu_client.py     # Fitatu API client
-├── 📄 base_client.py       # HTTP client base class
-├── 📄 config_model.py      # Configuration models
-├── 📄 constants.py         # Application constants
-├── 📄 utils.py             # Utility functions
-├── 📄 *_model.py           # Data models
-├── 📄 sites.yaml           # API endpoints
-├── 📄 users.yaml           # User credentials
-├── 📄 pyproject.toml       # Dependencies
-└── 📄 README.md            # This file
+├── 📁 .github/workflows/          # GitHub Actions
+├── 📁 config/                     # Configuration files
+│   ├── sites.yaml                 # API endpoints configuration
+│   └── users.yaml                 # User credentials
+├── 📁 src/                        # Source code
+│   ├── 📁 clients/                # API clients
+│   │   ├── base_client.py         # HTTP client base class
+│   │   ├── dietly_client.py       # Dietly web scraping
+│   │   └── fitatu_client.py       # Fitatu API client
+│   ├── 📁 models/                 # Data models
+│   │   ├── add_product_model.py   # Nutrition product models
+│   │   ├── config_model.py        # Configuration models
+│   │   ├── dietly_order_models.py # Dietly order models
+│   │   └── menu_response_model.py # Menu response models
+│   └── 📁 utils/                  # Utility functions
+│       ├── constants.py           # Application constants
+│       └── utils.py               # Helper functions
+├── 📄 main.py                     # Application entry point
+├── 📄 docker-compose.yml          # Docker configuration
+├── 📄 Dockerfile                  # Docker image definition
+├── 📄 pyproject.toml              # Dependencies
+└── 📄 README.md                   # This file
 ```
+
+### Core Architecture
+
+The application follows clean architecture principles:
+
+- **`main.py`**: Entry point and orchestration
+- **`src/clients/`**: External service integrations
+  - `DietlyClient`: Handles Dietly login and API interception
+  - `FitatuClient`: Manages Fitatu API operations with Viking-style logic
+  - `BaseAPIClient`: Shared HTTP functionality using Playwright
+- **`src/models/`**: Data structures and validation using Pydantic
+- **`src/utils/`**: Shared utilities and constants
+
+### Key Features
+
+- **Viking-Style Sync**: Search first, create only if not found
+- **Smart Deduplication**: Avoids creating duplicate products
+- **Robust Error Handling**: Multi-layer error catching with graceful degradation
+- **Configuration-Driven**: YAML-based configuration with type validation
 
 ### Adding New Features
 
-1. **Extend models** in `*_model.py` for new data structures
-2. **Add constants** in `constants.py` for configuration
-3. **Create utilities** in `utils.py` for reusable functions
-4. **Update clients** for new API endpoints
+1. **Extend models** in `src/models/` for new data structures
+2. **Add constants** in `src/utils/constants.py` for configuration
+3. **Create utilities** in `src/utils/utils.py` for reusable functions
+4. **Update clients** in `src/clients/` for new API endpoints
 5. **Modify main.py** for new processing logic
 
 ### Code Quality
@@ -327,7 +358,7 @@ ERROR: Login failed with status 401
 ```
 
 **Solutions:**
-- Verify credentials in `users.yaml`
+- Verify credentials in `config/users.yaml`
 - Check if 2FA is enabled (not supported)
 - Ensure API secret is valid for Fitatu
 
@@ -354,7 +385,7 @@ ERROR: HTTP 429 error: Too Many Requests
 ```
 
 **Solutions:**
-- Increase `DEFAULT_REQUEST_TIMEOUT` in constants.py
+- Increase `DEFAULT_REQUEST_TIMEOUT` in `src/utils/constants.py`
 - Add delays between requests
 - Check API rate limits with service providers
 
@@ -367,8 +398,8 @@ playwright._impl._errors.TimeoutError: Page.goto: Timeout 45000ms exceeded
 
 **Solutions:**
 - Check internet connectivity
-- Verify site URLs in `sites.yaml`
-- Increase timeout values in constants.py
+- Verify site URLs in `config/sites.yaml`
+- Increase timeout values in `src/utils/constants.py`
 - **Note**: Navigation timeouts are often treated as "no menu available" (acceptable)
 
 #### Error Handling & Resilience
@@ -384,7 +415,7 @@ The application includes comprehensive error handling:
 ```bash
 # User 1 fails with timeout (treated as no menu)
 2025-05-29 10:21:50,057 - ERROR - Unexpected error processing User1: TimeoutError
-2025-05-29 10:21:50,058 - INFO - Navigation/timeout error for User1 - likely no menu available
+2025-05-29 10:21:50,058 - INFO - HTTP/timeout error for User1 - likely no menu available
 
 # User 2 continues processing normally
 2025-05-29 10:21:50,059 - INFO - Processing user: User2
@@ -403,8 +434,16 @@ DIETLY_HEADLESS=false uv run python main.py
 # Test specific component
 uv run python -c "
 import asyncio
-from dietly_client import DietlyClient
-# ... test code
+from src.clients.dietly_client import DietlyClient
+from src.models.config_model import SitesConfiguration, UsersConfiguration
+
+async def test():
+    sites = SitesConfiguration.load_from_file('config/sites.yaml')
+    users = UsersConfiguration.load_from_file('config/users.yaml')
+    client = DietlyClient(sites.dietly, users.users[0].dietly_credentials)
+    # ... test code
+
+asyncio.run(test())
 "
 ```
 
