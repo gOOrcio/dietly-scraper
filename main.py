@@ -39,7 +39,10 @@ async def process_user_meals(user, sites) -> UserSyncResult:
 
         except DietlyScraperAPIError as e:
             # Check if this is a "no menu found" scenario vs actual error
-            if "API response not captured within" in str(e):
+            error_msg = str(e).lower()
+            if ("failed to get order details with status 400" in error_msg or
+                "failed to get order details with status 404" in error_msg or
+                "no delivery found for date" in error_msg):
                 logging.info(f"No menu data available for {user.name} on {get_current_date()} - sync skipped (acceptable)")
                 return UserSyncResult(user.name, SyncStatus.NO_MENU, "No menu available for today")
             else:
