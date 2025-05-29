@@ -3,12 +3,12 @@ import sys
 from enum import Enum
 from typing import NamedTuple
 
-from src.clients.dietly_client import DietlyClient, DietlyClientAPIError
+from src.clients.dietly_client import DietlyClient, DietlyClientAPIError, DietlyNoActivePlanError
 from src.clients.fitatu_client import FitatuClient
 from src.models.add_product_model import convert_menu_meal_to_nutrition_product
 from src.models.config_model import SitesConfiguration, UsersConfiguration
 from src.models.menu_response_model import MenuResponse
-from src.utils.constants import MEAL_MAPPING, LOG_FORMAT, EXIT_CODE_SUCCESS, EXIT_CODE_PARTIAL_FAILURE, EXIT_CODE_TOTAL_FAILURE, NO_MENU_MEALS_MSG
+from src.utils.constants import MEAL_MAPPING, LOG_FORMAT, EXIT_CODE_SUCCESS, EXIT_CODE_PARTIAL_FAILURE, EXIT_CODE_TOTAL_FAILURE, NO_MENU_MEALS_MSG, NO_ACTIVE_PLAN_MSG
 from src.utils.utils import get_current_date_iso, is_valid_api_response
 
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
@@ -54,17 +54,15 @@ async def process_user_meal_sync(user, sites) -> UserSyncResult:
                 menu = MenuResponse.model_validate(menu_data)
                 logging.info(f"Successfully retrieved menu data for {user.name} from {company_name}")
 
+            except DietlyNoActivePlanError as e:
+                # No active plan is an acceptable state - treat as SUCCESS, not failure
+                logging.info(f"No active meal plan for {user.name} on {get_current_date_iso()} - sync skipped (acceptable)")
+                return UserSyncResult(user.name, SyncStatus.SUCCESS, NO_ACTIVE_PLAN_MSG)
+
             except DietlyClientAPIError as e:
-                # Check if this is a "no menu found" scenario vs actual error
-                error_msg = str(e).lower()
-                if ("failed to get order details with status 400" in error_msg or
-                        "failed to get order details with status 404" in error_msg or
-                        "no delivery found for date" in error_msg):
-                    logging.info(f"No menu data available for {user.name} on {get_current_date_iso()} - sync skipped (acceptable)")
-                    return UserSyncResult(user.name, SyncStatus.NO_MENU, NO_MENU_MEALS_MSG)
-                else:
-                    logging.error(f"Error while scraping Dietly API for {user.name}: {e}")
-                    return UserSyncResult(user.name, SyncStatus.FAILED, f"Dietly scraping failed: {e}")
+                # Real failures from Dietly API - report as FAILED
+                logging.error(f"Dietly API error for {user.name}: {e}")
+                return UserSyncResult(user.name, SyncStatus.FAILED, f"Dietly API failed: {e}")
 
             # Menu found, now try to sync to Fitatu
             sync_success = await sync_menu_to_fitatu(menu, company_name, user, sites)
@@ -218,20 +216,25 @@ async def main():
             results.append(UserSyncResult(user.name, SyncStatus.FAILED, f"Critical error: {str(e)[:100]}"))
 
     # Summary logging
-    successful_syncs = len([r for r in results if r.status == SyncStatus.SUCCESS])
+    successful_syncs = len([r for r in results if r.status == SyncStatus.SUCCESS and "synced successfully" in r.message])
+    no_active_plan_users = len([r for r in results if r.status == SyncStatus.SUCCESS and NO_ACTIVE_PLAN_MSG in r.message])
     no_menu_users = len([r for r in results if r.status == SyncStatus.NO_MENU])
     failed_syncs = len([r for r in results if r.status == SyncStatus.FAILED])
     total_users = len(results)
 
     logging.info("=== SYNC SUMMARY ===")
     logging.info(f"Total users: {total_users}")
-    logging.info(f"Successful syncs: {successful_syncs}")
+    logging.info(f"Successful meal syncs: {successful_syncs}")
+    logging.info(f"No active meal plan: {no_active_plan_users}")
     logging.info(f"No menu available: {no_menu_users}")
     logging.info(f"Failed syncs: {failed_syncs}")
 
     # Detailed results
     for result in results:
-        status_icon = {"success": "✅", "no_menu": "ℹ️", "failed": "❌"}[result.status.value]
+        if result.status == SyncStatus.SUCCESS and NO_ACTIVE_PLAN_MSG in result.message:
+            status_icon = "📅"  # Calendar icon for no active plan
+        else:
+            status_icon = {"success": "✅", "no_menu": "ℹ️", "failed": "❌"}[result.status.value]
         logging.info(f"{status_icon} {result.user_name}: {result.message}")
 
     # Determine exit code and final status
