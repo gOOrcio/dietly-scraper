@@ -24,15 +24,10 @@ jobs:
     - name: Install dependencies
       run: uv sync
     
-    - name: Install Playwright browsers
-      run: |
-        uv run playwright install chromium
-        uv run playwright install-deps
-    
     - name: Create config files from secrets
       run: |
-        echo '${{ secrets.USERS_YAML }}' > users.yaml
-        echo '${{ secrets.SITES_YAML }}' > sites.yaml
+        echo '${{ secrets.USERS_YAML }}' > config/users.yaml
+        echo '${{ secrets.SITES_YAML }}' > config/sites.yaml
     
     - name: Run dietly scraper
       id: sync

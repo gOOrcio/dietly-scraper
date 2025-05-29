@@ -1,31 +1,29 @@
 FROM python:3.12-slim
-
-# Install system dependencies for Playwright
+# Install system dependencies for httpx and general Python packages
 RUN apt-get update && apt-get install -y \
-    wget \
-    gnupg \
+    curl \
+    git \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 # Set working directory
 WORKDIR /app
 
-# Copy project files
+# Copy dependency files
 COPY pyproject.toml uv.lock ./
-COPY . .
 
 # Install dependencies
-RUN uv sync
+RUN uv sync --frozen
 
-# Install Playwright and browsers
-RUN uv run playwright install chromium
-RUN uv run playwright install-deps
+# Copy application code
+COPY . .
 
-# Create non-root user for security
-RUN useradd --create-home --shell /bin/bash app
-USER app
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
 
-# Run the scraper
+# Run the application
 CMD ["uv", "run", "python", "main.py"] 

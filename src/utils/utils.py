@@ -2,9 +2,9 @@ import json
 import logging
 from base64 import b64decode
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 
-from constants import JWT_MIN_PARTS, BASE64_PADDING, LOG_FORMAT
+from src.utils.constants import JWT_MIN_PARTS, BASE64_PADDING, LOG_FORMAT
 
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 

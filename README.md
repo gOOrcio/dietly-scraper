@@ -1,90 +1,66 @@
-# 🍽️ Dietly Scraper
+[![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![httpx](https://img.shields.io/badge/httpx-latest-green.svg)](https://www.python-httpx.org/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Pydantic](https://img.shields.io/badge/pydantic-v2-orange.svg)](https://pydantic.dev/)
 
-**Automated meal synchronization from Dietly to Fitatu for seamless nutrition tracking.**
+# Dietly Menu Scraper
 
-[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![Playwright](https://img.shields.io/badge/playwright-latest-green.svg)](https://playwright.dev/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+A Python application that automatically syncs meal data from [Dietly.pl](https://dietly.pl) to [Fitatu.com](https://fitatu.com) using modern HTTP APIs. Perfect for users who want to track their Dietly meals in Fitatu without manual data entry.
 
-## 📖 Overview
+## 🚀 Features
 
-Dietly Scraper automates the process of syncing daily meal plans from Dietly.pl to Fitatu.com, eliminating manual data entry while maintaining accurate nutrition tracking. The application:
+- **Automated Daily Sync**: Runs via GitHub Actions or locally
+- **HTTP API Integration**: Fast, reliable API calls using httpx
+- **Smart Error Handling**: Graceful handling of missing meals and API errors
+- **Multi-User Support**: Configure multiple Dietly/Fitatu account pairs
+- **Docker Support**: Ready-to-deploy containerized application
+- **Comprehensive Logging**: Detailed execution logs and error reporting
+- **Mobile Notifications**: Multiple notification options for sync status
 
-- 🔍 **Scrapes** meal data from Dietly using authenticated API calls
-- 🔄 **Syncs** nutritional information to Fitatu with intelligent deduplication
-- 📅 **Schedules** automatic daily runs via GitHub Actions or Docker
-- 🛡️ **Handles** errors gracefully with comprehensive logging
+## 📋 Prerequisites
 
-## 🏗️ Architecture
+- Python 3.12+
+- [uv](https://docs.astral.sh/uv/) package manager
+- Dietly.pl account with active meal plan
+- Fitatu.com account with API access
 
-```mermaid
-graph TD
-    A[Scheduler] --> B[Main App]
-    B --> C[Dietly Scraper]
-    B --> D[Fitatu Client]
-    C --> E[Dietly API]
-    D --> F[Fitatu API]
-    B --> G[Config Manager]
-    G --> H[users.yaml]
-    G --> I[sites.yaml]
-```
+## 🛠 Installation
 
-### Core Components
-
-| Component | Purpose | Key Features |
-|-----------|---------|--------------|
-| **DietlyScraper** | Web scraping & API interception | Playwright automation, request filtering |
-| **FitatuClient** | Fitatu API integration | Product search, meal plan management |
-| **BaseAPIClient** | HTTP request abstraction | Error handling, logging, timeouts |
-| **Config Models** | Configuration management | YAML loading, validation, type safety |
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- **Python 3.12+**
-- **uv** package manager (recommended) or pip
-- Valid **Dietly.pl** and **Fitatu.com** accounts
-
-### Installation
+### Local Development
 
 ```bash
-# Clone repository
+# Clone the repository
 git clone https://github.com/yourusername/dietly-scraper.git
 cd dietly-scraper
 
 # Install dependencies with uv
 uv sync
-
-# Install Playwright browsers
-uv run playwright install chromium
-# Or: playwright install chromium
 ```
 
-### Configuration
+## 🔧 Configuration
 
-1. **Create configuration files:**
+### 1. Create Configuration Files
+
+Copy the example files and configure them with your credentials:
 
 ```bash
-cp sites.yaml.example sites.yaml
 cp users.yaml.example users.yaml
+cp sites.yaml.example sites.yaml
 ```
 
-2. **Configure sites.yaml:**
+### 2. Configure Sites (sites.yaml)
 
 ```yaml
 dietly:
   base_url: "https://dietly.pl"
-  api_url: "https://dietly.pl/api"
   login_url: "https://dietly.pl/api/auth/login"
 
 fitatu:
-  base_url: "https://www.fitatu.com"
+  base_url: "https://fitatu.com"
   api_url: "https://pl-pl.fitatu.com/api"
-  login_url: "https://pl-pl.fitatu.com/api/login"
 ```
 
-3. **Configure users.yaml:**
+### 3. Configure Users (users.yaml)
 
 ```yaml
 users:
@@ -99,6 +75,8 @@ users:
 ```
 
 > ⚠️ **Security Note**: Keep `users.yaml` private and never commit credentials to version control.
+
+## 🚀 Quick Start
 
 ### Running
 

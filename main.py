@@ -3,13 +3,13 @@ import sys
 from enum import Enum
 from typing import NamedTuple
 
-from add_product_model import menu_meal_to_product
-from config_model import SitesConfig, UsersConfig
-from constants import MEAL_MAPPING, DEFAULT_BRAND, LOG_FORMAT
-from dietly_scraper import DietlyScraper, DietlyScraperAPIError
-from fitatu_client import FitatuClient
-from menu_response_model import MenuResponse
-from utils import get_current_date, is_valid_response
+from src.models.add_product_model import menu_meal_to_product
+from src.models.config_model import SitesConfig, UsersConfig
+from src.utils.constants import MEAL_MAPPING, DEFAULT_BRAND, LOG_FORMAT
+from src.clients.dietly_scraper import DietlyScraper, DietlyScraperAPIError
+from src.clients.fitatu_client import FitatuClient
+from src.models.menu_response_model import MenuResponse
+from src.utils.utils import get_current_date, is_valid_response
 
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 
@@ -26,46 +26,45 @@ class UserSyncResult(NamedTuple):
 async def process_user_meals(user, sites) -> UserSyncResult:
     """Process meals for a single user. Returns detailed sync result."""
     try:
-        scraper = DietlyScraper(sites.dietly, user.dietly_credentials)
+        async with DietlyScraper(sites.dietly, user.dietly_credentials) as scraper:
+            try:
+                json_data = await scraper.login_and_capture_api()
+                if not is_valid_response(json_data):
+                    logging.info(f"No menu data found for {user.name} on {get_current_date()} - sync skipped (acceptable)")
+                    return UserSyncResult(user.name, SyncStatus.NO_MENU, "No menu available for today")
 
-        try:
-            json_data = await scraper.login_and_capture_api()
-            if not is_valid_response(json_data):
-                logging.info(f"No menu data found for {user.name} on {get_current_date()} - sync skipped (acceptable)")
-                return UserSyncResult(user.name, SyncStatus.NO_MENU, "No menu available for today")
+                menu = MenuResponse.model_validate(json_data)
+                logging.info(f"Successfully retrieved menu data for {user.name}")
 
-            menu = MenuResponse.model_validate(json_data)
-            logging.info(f"Successfully retrieved menu data for {user.name}")
+            except DietlyScraperAPIError as e:
+                # Check if this is a "no menu found" scenario vs actual error
+                error_msg = str(e).lower()
+                if ("failed to get order details with status 400" in error_msg or
+                    "failed to get order details with status 404" in error_msg or
+                    "no delivery found for date" in error_msg):
+                    logging.info(f"No menu data available for {user.name} on {get_current_date()} - sync skipped (acceptable)")
+                    return UserSyncResult(user.name, SyncStatus.NO_MENU, "No menu available for today")
+                else:
+                    logging.error(f"Error while scraping Dietly API for {user.name}: {e}")
+                    return UserSyncResult(user.name, SyncStatus.FAILED, f"Dietly scraping failed: {e}")
 
-        except DietlyScraperAPIError as e:
-            # Check if this is a "no menu found" scenario vs actual error
-            error_msg = str(e).lower()
-            if ("failed to get order details with status 400" in error_msg or
-                "failed to get order details with status 404" in error_msg or
-                "no delivery found for date" in error_msg):
-                logging.info(f"No menu data available for {user.name} on {get_current_date()} - sync skipped (acceptable)")
-                return UserSyncResult(user.name, SyncStatus.NO_MENU, "No menu available for today")
+            # Menu found, now try to sync to Fitatu
+            sync_success = await sync_to_fitatu(menu, user, sites)
+            if sync_success:
+                return UserSyncResult(user.name, SyncStatus.SUCCESS, "Menu synced successfully")
             else:
-                logging.error(f"Error while scraping Dietly API for {user.name}: {e}")
-                return UserSyncResult(user.name, SyncStatus.FAILED, f"Dietly scraping failed: {e}")
-
-        # Menu found, now try to sync to Fitatu
-        sync_success = await sync_to_fitatu(menu, user, sites)
-        if sync_success:
-            return UserSyncResult(user.name, SyncStatus.SUCCESS, "Menu synced successfully")
-        else:
-            return UserSyncResult(user.name, SyncStatus.FAILED, "Fitatu sync failed")
+                return UserSyncResult(user.name, SyncStatus.FAILED, "Fitatu sync failed")
             
     except Exception as e:
-        # Catch any unexpected errors (Playwright timeouts, network issues, etc.)
+        # Catch any unexpected errors (httpx timeouts, network issues, etc.)
         error_msg = str(e)
         logging.error(f"Unexpected error processing {user.name}: {e}")
         
         # Check if this might be a "no menu" scenario based on error message
-        if any(keyword in error_msg.lower() for keyword in ["timeout", "navigation", "network", "connection"]):
-            # Treat navigation/timeout errors as potentially "no menu" scenarios
-            logging.info(f"Navigation/timeout error for {user.name} - likely no menu available")
-            return UserSyncResult(user.name, SyncStatus.NO_MENU, f"Navigation timeout (likely no menu): {error_msg[:100]}")
+        if any(keyword in error_msg.lower() for keyword in ["timeout", "connection", "network", "http"]):
+            # Treat HTTP/timeout errors as potentially "no menu" scenarios
+            logging.info(f"HTTP/timeout error for {user.name} - likely no menu available")
+            return UserSyncResult(user.name, SyncStatus.NO_MENU, f"HTTP timeout (likely no menu): {error_msg[:100]}")
         else:
             # Other unexpected errors are true failures
             return UserSyncResult(user.name, SyncStatus.FAILED, f"Unexpected error: {error_msg[:100]}")
@@ -155,8 +154,8 @@ def determine_exit_code(results: list[UserSyncResult]) -> int:
 
 async def main():
     """Main entry point for Dietly menu scraping."""
-    sites = SitesConfig.load("sites.yaml")
-    users = UsersConfig.load("users.yaml")
+    sites = SitesConfig.load("config/sites.yaml")
+    users = UsersConfig.load("config/users.yaml")
     
     today = get_current_date()
     logging.info(f"Starting Dietly sync for {today}")

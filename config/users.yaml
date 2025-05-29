@@ -1,0 +1,17 @@
+users:
+  - name: "Kamil Piotrowski"
+    dietly_credentials:
+      email: "wari.gio@gmail.com"
+      password: "zakupiXy746"
+    fitatu_credentials:
+      email: ""
+      password: ""
+      api_secret: ""
+  - name: "Mateusz Góral"
+    dietly_credentials:
+      email: "mateusz.goral92@gmail.com"
+      password: "fixged-foJfup-0babce"
+    fitatu_credentials:
+      email: "mateusz.goral92@gmail.com"
+      password: "gOOrcio3714?!"
+      api_secret: "PYRXtfs88UDJMuCCrNpLV"

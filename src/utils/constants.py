@@ -5,9 +5,9 @@ DEFAULT_RETRY_COUNT = 3
 DEFAULT_WAIT_TIMEOUT = 500
 SEARCH_PAGE_LIMIT = 1
 
-# Playwright timeouts
-PLAYWRIGHT_NAVIGATION_TIMEOUT = 45000  # 45 seconds for page navigation
-PLAYWRIGHT_DEFAULT_TIMEOUT = 30000     # 30 seconds for general operations
+# HTTP timeouts
+HTTP_REQUEST_TIMEOUT = 30
+HTTP_CONNECTION_TIMEOUT = 10
 
 # Meal mappings
 MEAL_MAPPING = {

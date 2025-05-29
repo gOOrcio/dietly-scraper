@@ -1,8 +1,8 @@
 from typing import Optional, List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from menu_response_model import DeliveryMenuMeal
+from src.models.menu_response_model import DeliveryMenuMeal
 
 
 class Measure(BaseModel):

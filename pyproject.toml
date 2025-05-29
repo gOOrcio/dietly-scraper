@@ -1,12 +1,12 @@
 [project]
 name = "dietly-scraper"
 version = "0.1.0"
-description = "Add your description here"
+description = "Sync meal data from Dietly.pl to Fitatu.com"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "playwright",
-    "pydantic",
-    "pyyaml",
-    "pyjwt"
+    "httpx>=0.24.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+    "python-dateutil>=2.8.0",
 ]

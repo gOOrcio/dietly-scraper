@@ -1,43 +1,85 @@
-# Future-Proofing Improvements
+# Improvements and Future Enhancements
 
-## 🔄 **Retry Logic & Resilience**
-- [ ] Add exponential backoff for API failures
-- [ ] Implement circuit breaker pattern for external services
-- [ ] Add request rate limiting to prevent API throttling
-- [ ] Implement dead letter queue for failed operations
+This document outlines potential improvements and enhancements for the Dietly Scraper project. These are focused on a scheduled one-off script rather than a long-running application.
 
-## 📊 **Monitoring & Observability**
-- [ ] Add structured logging with correlation IDs
-- [ ] Implement health checks for services
-- [ ] Add metrics collection (success rates, processing times)
-- [ ] Set up alerting for failures
+## 🚀 Performance Optimizations
 
-## 🧪 **Testing & Quality**
-- [ ] Add unit tests with pytest
-- [ ] Implement integration tests with mock APIs
-- [ ] Add property-based testing for data models
-- [ ] Set up pre-commit hooks for code quality
+### HTTP Client Improvements
+- [ ] Add retry logic with exponential backoff for transient failures
+- [ ] Implement request timeout tuning for different API endpoints
+- [ ] Add request batching for multiple users (parallel processing)
 
-## 🔐 **Security Enhancements**
-- [ ] Add secrets rotation mechanism
-- [ ] Implement credential validation
-- [ ] Add input sanitization for all external data
-- [ ] Set up dependency vulnerability scanning
+- [ ] Add configuration file validation on startup
 
-## 🚀 **Performance & Scalability**
-- [ ] Add connection pooling for HTTP requests
-- [ ] Implement async batch processing
-- [ ] Add caching layer for frequently accessed data
-- [ ] Optimize Playwright browser reuse
+## 🔧 Feature Enhancements
 
-## 📱 **API Evolution**
-- [ ] Add API versioning support
-- [ ] Implement schema validation for responses
-- [ ] Add backwards compatibility layers
-- [ ] Create API contract testing
+### Script Configuration
+- [ ] Environment variable support for sensitive credentials
+- [ ] Configuration templates for easy setup
+- [ ] Multi-user configuration validation
+- [ ] Dry-run mode for testing without actual sync
 
-## 🔧 **Operational Improvements**
-- [ ] Add configuration validation on startup
-- [ ] Implement graceful shutdown handling
-- [ ] Add database persistence for historical data
-- [ ] Create backup/restore procedures for configs 
+## 🛡️ Error Handling & Reliability
+
+### Resilience Improvements
+- [ ] Graceful handling of partial API outages
+- [ ] Better error categorization (temporary vs permanent failures)
+- [ ] Automatic retry for specific error types (rate limiting, timeouts)
+- [ ] Fallback mechanisms for API changes
+
+### Enhanced Logging
+- [ ] Structured logging with consistent formatting
+- [ ] Detailed API response logging (for debugging)
+- [ ] Error categorization and reporting
+- [ ] Success/failure statistics per run
+
+## 🧪 Testing & Quality
+
+### Code Quality
+- [ ] Add unit tests for core functions
+- [ ] Integration tests with mock APIs
+- [ ] Configuration validation tests
+- [ ] End-to-end testing with test credentials
+
+### Development Tools
+- [ ] Set up pre-commit hooks for code formatting
+- [ ] Add linting and type checking automation
+- [ ] Create development environment setup scripts
+
+## 🔐 Security Enhancements
+
+### Credential Management
+- [ ] Credential validation on startup
+- [ ] Secure logging (credential redaction)
+
+### Input Validation
+- [ ] API response validation and sanitization
+- [ ] Configuration file schema validation
+- [ ] Safe handling of malformed data
+
+## 📦 Deployment & Distribution
+
+### Packaging Improvements
+- [ ] Docker image optimization
+- [ ] Installation scripts for different platforms
+- [ ] Documentation for different deployment scenarios
+
+### Scheduling & Automation
+- [ ] Improved cron job templates
+- [ ] Windows Task Scheduler support
+- [ ] GitHub Actions workflow templates
+- [ ] Better error notification integration
+
+## 🔧 Operational Improvements
+
+### User Experience
+- [ ] Interactive setup wizard for first-time users
+- [ ] Configuration file generation from CLI prompts
+- [ ] Better error messages with suggested fixes
+- [ ] Progress indicators for long-running operations
+
+### Maintenance
+- [ ] Automated dependency updates
+- [ ] Breaking change detection for external APIs
+- [ ] Migration scripts for configuration updates
+- [ ] Health check commands for troubleshooting 

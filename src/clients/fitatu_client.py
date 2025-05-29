@@ -2,14 +2,14 @@ import logging
 import uuid
 from typing import Optional
 
-from add_product_model import Product
-from base_client import BaseAPIClient
-from config_model import Site, FitatuCredentials
-from constants import (
+from src.models.add_product_model import Product
+from src.clients.base_client import BaseAPIClient
+from src.models.config_model import Site, FitatuCredentials
+from src.utils.constants import (
     FITATU_HEADERS_BASE, SEARCH_PAGE_LIMIT,
     USER_ID_NOT_SET_MSG, LOG_FORMAT
 )
-from utils import extract_user_id_from_jwt, get_current_timestamp, safe_get_int
+from src.utils.utils import extract_user_id_from_jwt, get_current_timestamp, safe_get_int
 
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 

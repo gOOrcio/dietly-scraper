@@ -4,8 +4,8 @@ services:
   dietly-scraper:
     build: .
     volumes:
-      - ./users.yaml:/app/users.yaml:ro
-      - ./sites.yaml:/app/sites.yaml:ro
+      - ./config/users.yaml:/app/config/users.yaml:ro
+      - ./config/sites.yaml:/app/config/sites.yaml:ro
       - ./logs:/app/logs
     environment:
       - TZ=Europe/Warsaw  # Adjust timezone as needed
