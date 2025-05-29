@@ -43,7 +43,7 @@ class FitatuClient:
             "APP-Version": "4.2.1",
             "API-Key": "FITATU-MOBILE-APP"
         }
-        self.user_id = None  # Will be set after login
+        self.user_id = credentials.user_id
 
     @property
     def headers(self):
@@ -87,7 +87,6 @@ class FitatuClient:
     async def add_product(self, product: Product):
         """
         Add a product using the Fitatu API.
-        `product` should be a dict or a pydantic model with .dict() method.
         """
         async with async_playwright() as p:
             request_context = await p.request.new_context()

@@ -11,7 +11,7 @@ class Measure(BaseModel):
 
 class Product(BaseModel):
     name: str
-    brand: Optional[float] = None
+    brand: Optional[str] = None
     barcode: Optional[float] = None
     energy: float
     fat: float
@@ -54,7 +54,7 @@ class Product(BaseModel):
     iron: Optional[float] = None
     measures: List[Measure]
 
-def menu_meal_to_product(menu_meal: DeliveryMenuMeal) -> Product:
+def menu_meal_to_product(menu_meal: DeliveryMenuMeal, brand: str) -> Product:
     """
     Map a DeliveryMenuMeal (from menu_response_model) to a Product.
     """
@@ -71,7 +71,7 @@ def menu_meal_to_product(menu_meal: DeliveryMenuMeal) -> Product:
 
     return Product(
         name=menu_meal.menuMealName,
-        brand=None,
+        brand=brand,
         barcode=None,
         energy=nutrition.calories,
         fat=nutrition.fat,
