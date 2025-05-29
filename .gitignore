@@ -142,6 +142,6 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk
-/config.yaml
-/sites.yaml
-/users.yaml
+
+config/sites.yaml
+config/users.yaml
