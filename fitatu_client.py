@@ -1,50 +1,43 @@
 import logging
 import uuid
-from base64 import b64decode
-import json
+from typing import Optional
 
 from add_product_model import Product
+from base_client import BaseAPIClient
 from config_model import Site, FitatuCredentials
-from playwright.async_api import async_playwright
-from datetime import datetime
+from constants import (
+    FITATU_HEADERS_BASE, SEARCH_PAGE_LIMIT,
+    USER_ID_NOT_SET_MSG, LOG_FORMAT
+)
+from utils import extract_user_id_from_jwt, get_current_timestamp, safe_get_int
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 
-USER_ID_NOT_SET_MSG = "User ID not set. Please login first."
 
-class FitatuClient:
+class FitatuClient(BaseAPIClient):
     token: str
+    user_id: Optional[str] = None
 
     def __init__(self, sites_config: Site, credentials: FitatuCredentials, brand: str, headless: bool = True):
+        super().__init__(headless)
         self.sites_config = sites_config
         self.credentials = credentials
-        self.headless = headless
         self.brand = brand
-        self._headers = {
-            "Accept": "application/json; version=v3",
-            "Referer": "https://www.fitatu.com/",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15",
-            "Origin": "https://www.fitatu.com",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Site": "same-site",
-            "Accept-Language": "pl-PL,pl;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Content-Type": "application/json;charset=utf-8",
-            "Sec-Fetch-Mode": "cors",
-            "RequestId": "73",
-            "APP-Timezone": "Europe/Warsaw",
-            "APP-Locale": "pl_PL",
-            "API-Cluster": "pl-pl718304",
-            "APP-StorageLocale": "pl_PL",
-            "APP-OS": "FITATU-WEB",
-            "APP-SearchLocale": "pl_PL",
-            "Priority": "u=3, i",
+
+        # Build API URLs from sites config
+        self.api_base = sites_config.api_url
+        self.login_url = f"{self.api_base}/login"
+        self.products_url = f"{self.api_base}/products"
+        self.search_url = f"{self.api_base}/search/food/user"
+        self.diet_plan_url = f"{self.api_base}/diet-plan"
+        self.diet_activity_url = f"{self.api_base}/diet-and-activity-plan"
+
+        headers = FITATU_HEADERS_BASE.copy()
+        headers.update({
             "API-Secret": self.credentials.api_secret,
-            "APP-UUID": "64c2d1b0-c8ad-11e8-8956-0242ac120008",
-            "APP-Location-Country": "PL",
-            "APP-Version": "4.2.1",
-            "API-Key": "FITATU-MOBILE-APP"
-        }
+            "RequestId": str(uuid.uuid4().int % 1000)  # Generate unique request ID
+        })
+        self.update_headers(headers)
 
     @property
     def headers(self):
@@ -55,163 +48,137 @@ class FitatuClient:
         self._headers.update(new_headers)
 
     async def login(self):
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=self.headless)
-            context = await browser.new_context()
-            await context.new_page()
-            data = {
-                "_username": self.credentials.email,
-                "_password": self.credentials.password
-            }
-            request_context = await p.request.new_context()
-            response = await request_context.post(
-                "https://pl-pl.fitatu.com/api/login",
-                headers=self._headers,
-                data=data,
-            )
-            logging.info(f"Login response status: {response.status}")
-            try:
-                json_resp = await response.json()
-                logging.info(f"Login response JSON: {json_resp}")
-                self.token = json_resp["token"]
-                try:
-                    token_parts = self.token.split('.')
-                    if len(token_parts) >= 2:
-                        payload = json.loads(b64decode(token_parts[1] + '=' * (-len(token_parts[1]) % 4)).decode('utf-8'))
-                        self.user_id = payload.get('id')
-                        if not self.user_id:
-                            raise ValueError("User ID not found in token payload")
-                    else:
-                        raise ValueError("Invalid token format")
-                except Exception as e:
-                    logging.error(f"Failed to extract user ID from token: {e}")
-                    return None
+        """Login to Fitatu and extract user ID from JWT token."""
+        data = {
+            "_username": self.credentials.email,
+            "_password": self.credentials.password
+        }
 
-                self.update_headers({"Authorization": f"Bearer {self.token}"})
-                logging.info(f"Successfully set user ID to: {self.user_id}")
-                return json_resp
-            except Exception as e:
-                logging.error(f"Failed to parse login response: {e}")
-                return None
-            finally:
-                await request_context.dispose()
-                await context.close()
-                await browser.close()
+        response = await self.post(self.login_url, data)
+        if not response:
+            return None
+
+        self.token = response.get("token")
+        if not self.token:
+            logging.error("No token received from login response")
+            return None
+
+        self.user_id = extract_user_id_from_jwt(self.token)
+        if not self.user_id:
+            return None
+
+        self.update_headers({"Authorization": f"Bearer {self.token}"})
+        logging.info(f"Successfully logged in with user ID: {self.user_id}")
+        return response
 
     async def add_product(self, product: Product):
-        """
-        Add a product using the Fitatu API.
-        """
-        async with async_playwright() as p:
-            request_context = await p.request.new_context()
-            response = await request_context.post(
-                "https://pl-pl.fitatu.com/api/products",
-                headers=self._headers,
-                data=product.model_dump_json()
-            )
-            logging.info(f"Add product response status: {response.status}")
-            try:
-                json_resp = await response.json()
-                logging.info(f"Add product response JSON: {json_resp}")
-                return json_resp
-            except Exception as e:
-                logging.error(f"Failed to parse add product response: {e}")
-                return None
-            finally:
-                await request_context.dispose()
+        """Add a product using the Fitatu API."""
+        # Ensure we send a dict, not a JSON string
+        return await self.post(self.products_url, product.model_dump())
 
     async def search_product(self, name: str, date: str):
-        """
-        Search for a product by name and date in Fitatu.
-        Returns the first matching product id or None.
-        """
+        """Search for a product by name and date in Fitatu."""
         if not self.user_id:
             logging.error(USER_ID_NOT_SET_MSG)
             return None
-        url = f"https://pl-pl.fitatu.com/api/search/food/user/{self.user_id}?date={date}&phrase={name}&page=1&limit=1"
-        async with async_playwright() as p:
-            request_context = await p.request.new_context()
-            response = await request_context.get(url, headers=self._headers)
-            try:
-                response_text = await response.text()
-                logging.debug(f"Search product response text: {response_text}")
 
-                if not response_text:
-                    logging.warning(f"Empty response when searching for product: {name}")
-                    return None
+        url = f"{self.search_url}/{self.user_id}?date={date}&phrase={name}&page=1&limit={SEARCH_PAGE_LIMIT}"
+        response = await self.get(url)
 
-                products = await response.json()
-                if not products:
-                    logging.info(f"No products found for: {name}")
-                    return None
+        if not response:
+            return None
 
-                for product in products:
-                    if product.get("name") == name and product.get("brand") == self.brand:
-                        product_id = product.get("foodId")
-                        logging.info(f"Product '{name}' found with ID {product_id}")
-                        return product_id
-                logging.info(f"No exact match found for product: {name}")
-            except json.JSONDecodeError as e:
-                logging.error(f"Failed to decode JSON response: {e}. Response text: {response_text}")
-            except Exception as e:
-                logging.error(f"Failed to parse search product response: {e}. Response text: {response_text}")
-            finally:
-                await request_context.dispose()
+        # Ensure response is a list of dicts
+        if isinstance(response, dict):
+            products = response.get("products") or []
+        else:
+            products = response
+
+        for product in products:
+            if isinstance(product, dict) and product.get("name") == name and product.get("brand") == self.brand:
+                product_id = product.get("foodId")
+                logging.info(f"Product '{name}' found with ID {product_id}")
+                return product_id
+
+        logging.info(f"No exact match found for product: {name}")
         return None
 
     async def get_existing_diet_plan(self, date: str):
-        """
-        Retrieves existing diet plan for the given date.
-        """
+        """Retrieves existing diet plan for the given date."""
         if not self.user_id:
             logging.error(USER_ID_NOT_SET_MSG)
             return {}
-        url = f"https://pl-pl.fitatu.com/api/diet-and-activity-plan/{self.user_id}/day/{date}"
-        async with async_playwright() as p:
-            request_context = await p.request.new_context()
-            response = await request_context.get(url, headers=self._headers)
-            try:
-                resp = await response.json()
-                return {
-                    meal_key: [item for item in meal_data.get("items", []) if item.get("brand") == self.brand]
-                    for meal_key, meal_data in resp.get("dietPlan", {}).items()
-                } if resp else {}
-            except Exception as e:
-                logging.error(f"Failed to parse get diet plan response: {e}")
-                return {}
-            finally:
-                await request_context.dispose()
+
+        url = f"{self.diet_activity_url}/{self.user_id}/day/{date}"
+        response = await self.get(url)
+
+        if not response or not isinstance(response, dict):
+            return {}
+
+        diet_plan = response.get("dietPlan", {})
+        return {
+            meal_key: [item for item in meal_data.get("items", []) if isinstance(item, dict) and item.get("brand") == self.brand]
+            for meal_key, meal_data in diet_plan.items()
+        }
 
     async def update_diet_plan(self, date: str, diet_plan: dict):
-        """
-        Publishes the diet plan to Fitatu.
-        """
+        """Publishes the diet plan to Fitatu."""
         if not self.user_id:
             logging.error(USER_ID_NOT_SET_MSG)
             return False
-        url = f"https://pl-pl.fitatu.com/api/diet-plan/{self.user_id}/days"
-        async with async_playwright() as p:
-            request_context = await p.request.new_context()
-            response = await request_context.post(
-                url,
-                headers=self._headers,
-                data=diet_plan
+
+        url = f"{self.diet_plan_url}/{self.user_id}/days"
+        response = await self.post(url, diet_plan)
+
+        success = response is not None
+        if success:
+            logging.info(f"Fitatu Diet Plan updated for {date}")
+        else:
+            logging.error(f"Failed to update diet plan for {date}")
+
+        return success
+
+    async def create_or_find_product(self, product: Product, date: str):
+        """Finds an existing product or creates a new product in Fitatu."""
+        product_id = await self.search_product(product.name, date)
+        if product_id:
+            return product_id
+
+        response = await self.add_product(product)
+        # Ensure response is a dict before calling get
+        if isinstance(response, dict):
+            return response.get("id")
+        return None
+
+    async def publish_diet_plan(self, date: str, meal_ids: dict, meal_weights: dict, meal_mapping: dict):
+        """Publishes the diet plan to Fitatu with proper handling of existing meals."""
+        existing_plan = await self.get_existing_diet_plan(date)
+        diet_plan = {date: {"dietPlan": {}}}
+
+        # Mark outdated meals for deletion
+        for meal_key, items in existing_plan.items():
+            for item in items:
+                if item["productId"] not in meal_ids.values():
+                    item["deletedAt"] = get_current_timestamp()
+                    logging.info(f"Marking '{item.get('name', 'Unknown')}' as deleted")
+            diet_plan[date]["dietPlan"][meal_key] = {"items": [item for item in items if "deletedAt" in item]}
+
+        # Add new meals
+        for meal_name, meal_id in meal_ids.items():
+            self._add_meal_to_diet_plan(
+                diet_plan[date]["dietPlan"],
+                meal_name,
+                meal_id,
+                meal_weights.get(meal_name, 100),
+                existing_plan,
+                meal_mapping
             )
-            try:
-                if response.status in (200, 201, 202):
-                    logging.info(f"Fitatu Diet Plan updated for {date}")
-                    return True
-                else:
-                    logging.error(f"Failed to update diet plan for {date}: {response.status}")
-                    return False
-            except Exception as e:
-                logging.error(f"Failed to parse update diet plan response: {e}")
-                return False
-            finally:
-                await request_context.dispose()
+
+        return await self.update_diet_plan(date, diet_plan)
 
     @staticmethod
-    def add_meal_to_diet_plan(diet_plan: dict, meal_name: str, meal_id: str, meal_weight: int, existing_plan: dict, meal_mapping: dict):
+    def _add_meal_to_diet_plan(diet_plan: dict, meal_name: str, meal_id: str, meal_weight: int, existing_plan: dict, meal_mapping: dict):
+        """Add a meal to the diet plan while avoiding duplicates."""
         mapped_key = meal_mapping.get(meal_name)
         if not mapped_key:
             logging.info(f"Skipping '{meal_name}' - not supported meal by mapping configuration")
@@ -225,47 +192,9 @@ class FitatuClient:
             "planDayDietItemId": str(uuid.uuid1()),
             "foodType": "PRODUCT",
             "measureId": 1,
-            "measureQuantity": int(meal_weight),
+            "measureQuantity": safe_get_int(meal_weight, 100),
             "productId": meal_id,
             "source": "API",
-            "updatedAt": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "updatedAt": get_current_timestamp()
         })
         logging.info(f"Added '{meal_name}' with product ID {meal_id} to diet plan")
-
-    async def create_or_find_product(self, product: Product, date: str):
-        """
-        Finds an existing product or creates a new product in Fitatu.
-        Returns the product ID if successful, None otherwise.
-        """
-        product_id = await self.search_product(product.name, date)
-        if (product_id):
-            return product_id
-        
-        response = await self.add_product(product)
-        return response.get("id") if response else None
-
-    async def publish_diet_plan(self, date: str, meal_ids: dict, meal_weights: dict, meal_mapping: dict):
-        """
-        Publishes the diet plan to Fitatu with proper handling of existing meals.
-        """
-        existing_plan = await self.get_existing_diet_plan(date)
-        diet_plan = {date: {"dietPlan": {}}}
-
-        for meal_key, items in existing_plan.items():
-            for item in items:
-                if item["productId"] not in meal_ids.values():
-                    item["deletedAt"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    logging.info(f"Marking '{item.get('name', 'Unknown')}' as deleted")
-            diet_plan[date]["dietPlan"][meal_key] = {"items": [item for item in items if "deletedAt" in item]}
-
-        for meal_name, meal_id in meal_ids.items():
-            self.add_meal_to_diet_plan(
-                diet_plan[date]["dietPlan"], 
-                meal_name, 
-                meal_id, 
-                meal_weights.get(meal_name, 100), 
-                existing_plan,
-                meal_mapping
-            )
-
-        return await self.update_diet_plan(date, diet_plan)

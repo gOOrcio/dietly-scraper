@@ -1,5 +1,6 @@
-from pydantic import BaseModel
 from typing import Optional, List
+
+from pydantic import BaseModel
 
 from menu_response_model import DeliveryMenuMeal
 
@@ -8,6 +9,7 @@ class Measure(BaseModel):
     measureKey: str
     measureUnit: str
     weight: str
+
 
 class Product(BaseModel):
     name: str
@@ -53,6 +55,7 @@ class Product(BaseModel):
     calcium: Optional[float] = None
     iron: Optional[float] = None
     measures: List[Measure]
+
 
 def menu_meal_to_product(menu_meal: DeliveryMenuMeal, brand: str) -> Product:
     """

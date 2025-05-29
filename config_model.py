@@ -1,7 +1,9 @@
 from typing import List, Optional, Type, TypeVar
+
 from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
+
 
 def load_config(model: Type[T], path: str) -> T:
     from pathlib import Path
@@ -19,10 +21,12 @@ def load_config(model: Type[T], path: str) -> T:
         raise ValueError("Unsupported config file format. Use .json or .yaml/.yml")
     return model.model_validate(data)
 
+
 class Site(BaseModel):
     base_url: Optional[str] = None
     login_url: Optional[str] = None
     api_url: Optional[str] = None
+
 
 class SitesConfig(BaseModel):
     dietly: Site
@@ -32,19 +36,23 @@ class SitesConfig(BaseModel):
     def load(path: str = "sites.yaml") -> "SitesConfig":
         return load_config(SitesConfig, path)
 
+
 class DietlyCredentials(BaseModel):
     email: str
     password: str
+
 
 class FitatuCredentials(BaseModel):
     email: str
     password: str
     api_secret: str
 
+
 class User(BaseModel):
     name: str
     dietly_credentials: DietlyCredentials
     fitatu_credentials: FitatuCredentials
+
 
 class UsersConfig(BaseModel):
     users: List[User]

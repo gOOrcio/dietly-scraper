@@ -1,11 +1,15 @@
 import logging
 from typing import Optional, Callable, Any
+
 from playwright.async_api import async_playwright, BrowserContext, APIRequestContext
+
 from config_model import Site, DietlyCredentials
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+
 class DietlyScraperAPIError(Exception): pass
+
 
 class DietlyScraper:
     def __init__(self, site: Site, credentials: DietlyCredentials, headless: bool = True):
@@ -40,10 +44,10 @@ class DietlyScraper:
         await context.add_cookies(cookies) if cookies else None
 
     async def login_and_capture_api(
-        self,
-        api_url_prefix: Optional[str] = None,
-        api_filter: Optional[Callable[[Any], bool]] = None,
-        timeout: int = 15
+            self,
+            api_url_prefix: Optional[str] = None,
+            api_filter: Optional[Callable[[Any], bool]] = None,
+            timeout: int = 15
     ) -> Optional[dict]:
         api_url_prefix = api_url_prefix or "/api/company/general/menus/delivery/"
         logging.info("Launching browser (headless=%s)...", self.headless)
