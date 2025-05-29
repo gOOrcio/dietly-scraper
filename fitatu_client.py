@@ -1,5 +1,7 @@
 import logging
 import uuid
+from base64 import b64decode
+import json
 
 from add_product_model import Product
 from config_model import Site, FitatuCredentials
@@ -25,25 +27,24 @@ class FitatuClient:
             "Origin": "https://www.fitatu.com",
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Site": "same-site",
-            "Accept-Language": "en-GB,en;q=0.9",
+            "Accept-Language": "pl-PL,pl;q=0.9",
             "Accept-Encoding": "gzip, deflate, br",
             "Content-Type": "application/json;charset=utf-8",
             "Sec-Fetch-Mode": "cors",
             "RequestId": "73",
             "APP-Timezone": "Europe/Warsaw",
-            "APP-Locale": "en_GB",
-            "API-Cluster": "en-gb718304",
-            "APP-StorageLocale": "en_GB",
+            "APP-Locale": "pl_PL",
+            "API-Cluster": "pl-pl718304",
+            "APP-StorageLocale": "pl_PL",
             "APP-OS": "FITATU-WEB",
-            "APP-SearchLocale": "",
+            "APP-SearchLocale": "pl_PL",
             "Priority": "u=3, i",
             "API-Secret": self.credentials.api_secret,
             "APP-UUID": "64c2d1b0-c8ad-11e8-8956-0242ac120008",
-            "APP-Location-Country": "UNKNOWN",
+            "APP-Location-Country": "PL",
             "APP-Version": "4.2.1",
             "API-Key": "FITATU-MOBILE-APP"
         }
-        self.user_id = credentials.user_id
 
     @property
     def headers(self):
@@ -73,8 +74,21 @@ class FitatuClient:
                 json_resp = await response.json()
                 logging.info(f"Login response JSON: {json_resp}")
                 self.token = json_resp["token"]
-                self.user_id = json_resp.get("user", {}).get("id") or json_resp.get("id")
+                try:
+                    token_parts = self.token.split('.')
+                    if len(token_parts) >= 2:
+                        payload = json.loads(b64decode(token_parts[1] + '=' * (-len(token_parts[1]) % 4)).decode('utf-8'))
+                        self.user_id = payload.get('id')
+                        if not self.user_id:
+                            raise ValueError("User ID not found in token payload")
+                    else:
+                        raise ValueError("Invalid token format")
+                except Exception as e:
+                    logging.error(f"Failed to extract user ID from token: {e}")
+                    return None
+
                 self.update_headers({"Authorization": f"Bearer {self.token}"})
+                logging.info(f"Successfully set user ID to: {self.user_id}")
                 return json_resp
             except Exception as e:
                 logging.error(f"Failed to parse login response: {e}")
@@ -119,14 +133,28 @@ class FitatuClient:
             request_context = await p.request.new_context()
             response = await request_context.get(url, headers=self._headers)
             try:
+                response_text = await response.text()
+                logging.debug(f"Search product response text: {response_text}")
+
+                if not response_text:
+                    logging.warning(f"Empty response when searching for product: {name}")
+                    return None
+
                 products = await response.json()
+                if not products:
+                    logging.info(f"No products found for: {name}")
+                    return None
+
                 for product in products:
                     if product.get("name") == name and product.get("brand") == self.brand:
                         product_id = product.get("foodId")
                         logging.info(f"Product '{name}' found with ID {product_id}")
                         return product_id
+                logging.info(f"No exact match found for product: {name}")
+            except json.JSONDecodeError as e:
+                logging.error(f"Failed to decode JSON response: {e}. Response text: {response_text}")
             except Exception as e:
-                logging.error(f"Failed to parse search product response: {e}")
+                logging.error(f"Failed to parse search product response: {e}. Response text: {response_text}")
             finally:
                 await request_context.dispose()
         return None
@@ -203,3 +231,41 @@ class FitatuClient:
             "updatedAt": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         })
         logging.info(f"Added '{meal_name}' with product ID {meal_id} to diet plan")
+
+    async def create_or_find_product(self, product: Product, date: str):
+        """
+        Finds an existing product or creates a new product in Fitatu.
+        Returns the product ID if successful, None otherwise.
+        """
+        product_id = await self.search_product(product.name, date)
+        if (product_id):
+            return product_id
+        
+        response = await self.add_product(product)
+        return response.get("id") if response else None
+
+    async def publish_diet_plan(self, date: str, meal_ids: dict, meal_weights: dict, meal_mapping: dict):
+        """
+        Publishes the diet plan to Fitatu with proper handling of existing meals.
+        """
+        existing_plan = await self.get_existing_diet_plan(date)
+        diet_plan = {date: {"dietPlan": {}}}
+
+        for meal_key, items in existing_plan.items():
+            for item in items:
+                if item["productId"] not in meal_ids.values():
+                    item["deletedAt"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    logging.info(f"Marking '{item.get('name', 'Unknown')}' as deleted")
+            diet_plan[date]["dietPlan"][meal_key] = {"items": [item for item in items if "deletedAt" in item]}
+
+        for meal_name, meal_id in meal_ids.items():
+            self.add_meal_to_diet_plan(
+                diet_plan[date]["dietPlan"], 
+                meal_name, 
+                meal_id, 
+                meal_weights.get(meal_name, 100), 
+                existing_plan,
+                meal_mapping
+            )
+
+        return await self.update_diet_plan(date, diet_plan)

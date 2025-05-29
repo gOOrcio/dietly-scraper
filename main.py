@@ -26,8 +26,10 @@ async def main():
                 logging.info(menu.model_dump_json(indent=2))
             else:
                 logging.info("No data captured.")
+                continue
         except DietlyScraperAPIError as e:
             logging.info(f"Error while scraping Dietly API: {e}")
+            continue
 
         fitatu = FitatuClient(
             sites_config=sites.fitatu,
@@ -35,35 +37,41 @@ async def main():
             brand="Dietly",
             headless=True
         )
-        await fitatu.login()
-        meal_ids = {}
-        meal_weights = {}
-        for meal in menu.deliveryMenuMeal:
-            product = menu_meal_to_product(meal, fitatu.brand)
-            add_resp = await fitatu.add_product(product)
-            product_id = add_resp.get("id") if add_resp else None
-            if product_id:
-                meal_ids[meal.mealName] = product_id
-                meal_weights[meal.mealName] = int(meal.nutrition.weight)
-        existing_plan = await fitatu.get_existing_diet_plan(today)
-        diet_plan = {today: {"dietPlan": {}}}
-        meal_mapping = {
-            "Śniadanie": "breakfast",
-            "II śniadanie": "second_breakfast",
-            "Obiad": "dinner",
-            "Podwieczorek": "snack",
-            "Kolacja": "supper"
-        }
-        for meal_name, product_id in meal_ids.items():
-            FitatuClient.add_meal_to_diet_plan(
-                diet_plan[today]["dietPlan"],
-                meal_name,
-                product_id,
-                meal_weights.get(meal_name, 100),
-                existing_plan,
-                meal_mapping
-            )
-        await fitatu.update_diet_plan(today, diet_plan)
+        
+        try:
+            await fitatu.login()
+            meal_ids = {}
+            meal_weights = {}
+            
+            # Process each meal - create or find product
+            for meal in menu.deliveryMenuMeal:
+                if meal.deliveryMealId is None:
+                    logging.info(f"Skipping '{meal.mealName}' - no delivery")
+                    continue
+                    
+                product = menu_meal_to_product(meal, fitatu.brand)
+                product_id = await fitatu.create_or_find_product(product, today)
+                
+                if product_id:
+                    meal_ids[meal.mealName] = product_id
+                    meal_weights[meal.mealName] = int(meal.nutrition.weight)
+                else:
+                    logging.error(f"Failed to create/find product for {meal.mealName}")
+            
+            meal_mapping = {
+                "Śniadanie": "breakfast",
+                "II śniadanie": "second_breakfast", 
+                "Obiad": "dinner",
+                "Podwieczorek": "snack",
+                "Kolacja": "supper"
+            }
+            
+            success = await fitatu.publish_diet_plan(today, meal_ids, meal_weights, meal_mapping)
+            if not success:
+                logging.error(f"Failed to publish diet plan for {today}")
+                
+        except Exception as e:
+            logging.error(f"Error during Fitatu processing: {e}")
 
 if __name__ == "__main__":
     import asyncio
