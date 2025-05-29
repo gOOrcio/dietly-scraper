@@ -1,9 +1,8 @@
 [![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![httpx](https://img.shields.io/badge/httpx-latest-green.svg)](https://www.python-httpx.org/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Pydantic](https://img.shields.io/badge/pydantic-v2-orange.svg)](https://pydantic.dev/)
 
-# Dietly Menu Scraper
+# Dietly Menu Synchronizer
 
 A Python application that automatically syncs meal data from [Dietly.pl](https://dietly.pl) to [Fitatu.com](https://fitatu.com) using modern HTTP APIs. Perfect for users who want to track their Dietly meals in Fitatu without manual data entry.
 
@@ -280,7 +279,7 @@ asyncio.run(test())
 dietly-scraper/
 ├── 📁 .github/workflows/    # GitHub Actions
 ├── 📄 main.py              # Application entry point
-├── 📄 dietly_scraper.py    # Dietly web scraping
+├── 📄 dietly_client.py    # Dietly web scraping
 ├── 📄 fitatu_client.py     # Fitatu API client
 ├── 📄 base_client.py       # HTTP client base class
 ├── 📄 config_model.py      # Configuration models
@@ -404,7 +403,7 @@ DIETLY_HEADLESS=false uv run python main.py
 # Test specific component
 uv run python -c "
 import asyncio
-from dietly_scraper import DietlyScraper
+from dietly_client import DietlyClient
 # ... test code
 "
 ```
@@ -450,7 +449,7 @@ uv run pytest --cov=.
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License
 
 ## ⚠️ Disclaimer
 

@@ -1,4 +1,5 @@
 from typing import List, Optional
+
 from pydantic import BaseModel, RootModel
 
 
@@ -74,12 +75,12 @@ class OrderDetails(BaseModel):
 
 class ActiveOrdersResponse(RootModel[List[ActiveOrder]]):
     root: List[ActiveOrder]
-    
+
     def __iter__(self):
         return iter(self.root)
-    
+
     def __getitem__(self, item):
         return self.root[item]
-    
+
     def __len__(self):
-        return len(self.root) 
+        return len(self.root)

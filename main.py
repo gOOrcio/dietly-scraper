@@ -3,63 +3,81 @@ import sys
 from enum import Enum
 from typing import NamedTuple
 
-from src.models.add_product_model import menu_meal_to_product
-from src.models.config_model import SitesConfig, UsersConfig
-from src.utils.constants import MEAL_MAPPING, DEFAULT_BRAND, LOG_FORMAT
-from src.clients.dietly_scraper import DietlyScraper, DietlyScraperAPIError
+from src.clients.dietly_client import DietlyClient, DietlyClientAPIError
 from src.clients.fitatu_client import FitatuClient
+from src.models.add_product_model import convert_menu_meal_to_nutrition_product
+from src.models.config_model import SitesConfiguration, UsersConfiguration
 from src.models.menu_response_model import MenuResponse
-from src.utils.utils import get_current_date, is_valid_response
+from src.utils.constants import MEAL_MAPPING, LOG_FORMAT, EXIT_CODE_SUCCESS, EXIT_CODE_PARTIAL_FAILURE, EXIT_CODE_TOTAL_FAILURE, NO_MENU_MEALS_MSG
+from src.utils.utils import get_current_date_iso, is_valid_api_response
 
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 
+
 class SyncStatus(Enum):
+    """Status of user synchronization process."""
     SUCCESS = "success"
-    NO_MENU = "no_menu" 
+    NO_MENU = "no_menu"
     FAILED = "failed"
 
+
 class UserSyncResult(NamedTuple):
+    """Result of processing a single user."""
     user_name: str
     status: SyncStatus
     message: str
 
-async def process_user_meals(user, sites) -> UserSyncResult:
-    """Process meals for a single user. Returns detailed sync result."""
+
+async def process_user_meal_sync(user, sites) -> UserSyncResult:
+    """Process meal synchronization for a single user.
+    
+    Args:
+        user: User configuration
+        sites: Sites configuration
+        
+    Returns:
+        UserSyncResult with sync status and details
+    """
     try:
-        async with DietlyScraper(sites.dietly, user.dietly_credentials) as scraper:
+        async with DietlyClient(sites.dietly, user.dietly_credentials) as client:
             try:
-                json_data = await scraper.login_and_capture_api()
-                if not is_valid_response(json_data):
-                    logging.info(f"No menu data found for {user.name} on {get_current_date()} - sync skipped (acceptable)")
-                    return UserSyncResult(user.name, SyncStatus.NO_MENU, "No menu available for today")
+                api_result = await client.login_and_get_todays_menu()
+                if not api_result:
+                    logging.info(f"No menu data found for {user.name} on {get_current_date_iso()} - sync skipped (acceptable)")
+                    return UserSyncResult(user.name, SyncStatus.NO_MENU, NO_MENU_MEALS_MSG)
 
-                menu = MenuResponse.model_validate(json_data)
-                logging.info(f"Successfully retrieved menu data for {user.name}")
+                menu_data, company_name = api_result
+                if not is_valid_api_response(menu_data):
+                    logging.info(f"No valid menu data found for {user.name} on {get_current_date_iso()} - sync skipped (acceptable)")
+                    return UserSyncResult(user.name, SyncStatus.NO_MENU, NO_MENU_MEALS_MSG)
 
-            except DietlyScraperAPIError as e:
+                menu = MenuResponse.model_validate(menu_data)
+                logging.info(f"Successfully retrieved menu data for {user.name} from {company_name}")
+
+            except DietlyClientAPIError as e:
                 # Check if this is a "no menu found" scenario vs actual error
                 error_msg = str(e).lower()
                 if ("failed to get order details with status 400" in error_msg or
-                    "failed to get order details with status 404" in error_msg or
-                    "no delivery found for date" in error_msg):
-                    logging.info(f"No menu data available for {user.name} on {get_current_date()} - sync skipped (acceptable)")
-                    return UserSyncResult(user.name, SyncStatus.NO_MENU, "No menu available for today")
+                        "failed to get order details with status 404" in error_msg or
+                        "no delivery found for date" in error_msg):
+                    logging.info(f"No menu data available for {user.name} on {get_current_date_iso()} - sync skipped (acceptable)")
+                    return UserSyncResult(user.name, SyncStatus.NO_MENU, NO_MENU_MEALS_MSG)
                 else:
                     logging.error(f"Error while scraping Dietly API for {user.name}: {e}")
                     return UserSyncResult(user.name, SyncStatus.FAILED, f"Dietly scraping failed: {e}")
 
             # Menu found, now try to sync to Fitatu
-            sync_success = await sync_to_fitatu(menu, user, sites)
+            sync_success = await sync_menu_to_fitatu(menu, company_name, user, sites)
             if sync_success:
                 return UserSyncResult(user.name, SyncStatus.SUCCESS, "Menu synced successfully")
             else:
                 return UserSyncResult(user.name, SyncStatus.FAILED, "Fitatu sync failed")
-            
+
     except Exception as e:
         # Catch any unexpected errors (httpx timeouts, network issues, etc.)
         error_msg = str(e)
         logging.error(f"Unexpected error processing {user.name}: {e}")
-        
+
         # Check if this might be a "no menu" scenario based on error message
         if any(keyword in error_msg.lower() for keyword in ["timeout", "connection", "network", "http"]):
             # Treat HTTP/timeout errors as potentially "no menu" scenarios
@@ -69,29 +87,40 @@ async def process_user_meals(user, sites) -> UserSyncResult:
             # Other unexpected errors are true failures
             return UserSyncResult(user.name, SyncStatus.FAILED, f"Unexpected error: {error_msg[:100]}")
 
-async def sync_to_fitatu(menu: MenuResponse, user, sites) -> bool:
-    """Sync menu data to Fitatu. Returns True if successful."""
+
+async def sync_menu_to_fitatu(menu: MenuResponse, company_name: str, user, sites) -> bool:
+    """Synchronize menu data to Fitatu service.
+    
+    Args:
+        menu: Menu response from Dietly API
+        company_name: Name of the meal company
+        user: User configuration
+        sites: Sites configuration
+        
+    Returns:
+        True if synchronization was successful, False otherwise
+    """
     try:
         fitatu = FitatuClient(
             sites_config=sites.fitatu,
             credentials=user.fitatu_credentials,
-            brand=DEFAULT_BRAND,
+            brand=company_name,
             headless=True
         )
 
         try:
             login_result = await fitatu.login()
-            if not is_valid_response(login_result):
+            if not is_valid_api_response(login_result):
                 logging.error(f"Failed to login to Fitatu for {user.name}")
                 return False
 
-            meal_data = await process_meals(menu, fitatu)
+            meal_data = await process_menu_meals(menu, fitatu)
             if not meal_data["meal_ids"]:
                 logging.warning(f"No valid meals found to sync for {user.name}")
                 return False
 
             success = await fitatu.publish_diet_plan(
-                get_current_date(),
+                get_current_date_iso(),
                 meal_data["meal_ids"],
                 meal_data["meal_weights"],
                 MEAL_MAPPING
@@ -104,23 +133,32 @@ async def sync_to_fitatu(menu: MenuResponse, user, sites) -> bool:
         except Exception as e:
             logging.error(f"Error during Fitatu processing for {user.name}: {e}")
             return False
-            
+
     except Exception as e:
         logging.error(f"Unexpected error in Fitatu sync for {user.name}: {e}")
         return False
 
-async def process_meals(menu: MenuResponse, fitatu: FitatuClient) -> dict:
-    """Process individual meals and return meal IDs and weights."""
+
+async def process_menu_meals(menu: MenuResponse, fitatu: FitatuClient) -> dict:
+    """Process individual meals from menu and convert to Fitatu products.
+    
+    Args:
+        menu: Menu response containing meals
+        fitatu: Fitatu client instance
+        
+    Returns:
+        Dictionary with meal_ids and meal_weights
+    """
     meal_ids = {}
     meal_weights = {}
-    today = get_current_date()
+    today = get_current_date_iso()
 
     for meal in menu.deliveryMenuMeal:
         if meal.deliveryMealId is None:
             logging.info(f"Skipping '{meal.mealName}' - no delivery")
             continue
 
-        product = menu_meal_to_product(meal, fitatu.brand)
+        product = convert_menu_meal_to_nutrition_product(meal, fitatu.brand)
         product_id = await fitatu.create_or_find_product(product, today)
 
         if product_id:
@@ -132,77 +170,84 @@ async def process_meals(menu: MenuResponse, fitatu: FitatuClient) -> dict:
 
     return {"meal_ids": meal_ids, "meal_weights": meal_weights}
 
-def determine_exit_code(results: list[UserSyncResult]) -> int:
-    """Determine appropriate exit code based on sync results."""
+
+def determine_sync_exit_code(results: list[UserSyncResult]) -> int:
+    """Determine appropriate exit code based on synchronization results.
+    
+    Args:
+        results: List of user sync results
+        
+    Returns:
+        Exit code (0=success, 1=partial failure, 2=total failure)
+    """
     total_users = len(results)
     successful_syncs = len([r for r in results if r.status == SyncStatus.SUCCESS])
     no_menu_users = len([r for r in results if r.status == SyncStatus.NO_MENU])
-    failed_syncs = len([r for r in results if r.status == SyncStatus.FAILED])
-    
+
     # Consider "no menu" as acceptable, not a failure
     acceptable_results = successful_syncs + no_menu_users
-    
+
     if acceptable_results == total_users:
         # All users either synced successfully or had no menu (both acceptable)
-        return 0
+        return EXIT_CODE_SUCCESS
     elif successful_syncs > 0:
         # At least one user synced successfully, but some failed
-        return 1
+        return EXIT_CODE_PARTIAL_FAILURE
     else:
         # All users failed to sync (ignoring "no menu" cases)
-        return 2
+        return EXIT_CODE_TOTAL_FAILURE
+
 
 async def main():
-    """Main entry point for Dietly menu scraping."""
-    sites = SitesConfig.load("config/sites.yaml")
-    users = UsersConfig.load("config/users.yaml")
-    
-    today = get_current_date()
+    """Main entry point for Dietly menu synchronization."""
+    sites = SitesConfiguration.load_from_file("config/sites.yaml")
+    users = UsersConfiguration.load_from_file("config/users.yaml")
+
+    today = get_current_date_iso()
     logging.info(f"Starting Dietly sync for {today}")
-    
+
     results = []
     for user in users.users:
         logging.info(f"Processing user: {user.name}")
         try:
-            result = await process_user_meals(user, sites)
+            result = await process_user_meal_sync(user, sites)
             results.append(result)
         except Exception as e:
             # Ultimate fallback - should not happen with our improved error handling
             logging.error(f"Critical error processing {user.name}: {e}")
             results.append(UserSyncResult(user.name, SyncStatus.FAILED, f"Critical error: {str(e)[:100]}"))
-            # Continue processing other users
-    
+
     # Summary logging
     successful_syncs = len([r for r in results if r.status == SyncStatus.SUCCESS])
     no_menu_users = len([r for r in results if r.status == SyncStatus.NO_MENU])
     failed_syncs = len([r for r in results if r.status == SyncStatus.FAILED])
     total_users = len(results)
-    
+
     logging.info("=== SYNC SUMMARY ===")
     logging.info(f"Total users: {total_users}")
     logging.info(f"Successful syncs: {successful_syncs}")
     logging.info(f"No menu available: {no_menu_users}")
     logging.info(f"Failed syncs: {failed_syncs}")
-    
+
     # Detailed results
     for result in results:
         status_icon = {"success": "✅", "no_menu": "ℹ️", "failed": "❌"}[result.status.value]
         logging.info(f"{status_icon} {result.user_name}: {result.message}")
-    
+
     # Determine exit code and final status
-    exit_code = determine_exit_code(results)
-    
-    if exit_code == 0:
+    exit_code = determine_sync_exit_code(results)
+
+    if exit_code == EXIT_CODE_SUCCESS:
         logging.info("🎉 All users processed successfully")
-    elif exit_code == 1:
+    elif exit_code == EXIT_CODE_PARTIAL_FAILURE:
         logging.warning("⚠️ Partial success - some users failed to sync")
     else:
         logging.error("💥 All users failed to sync")
-    
-    logging.info(f"Sync completed with exit code: {exit_code}")
-    return exit_code
+
+    return sys.exit(exit_code)
+
 
 if __name__ == "__main__":
     import asyncio
-    exit_code = asyncio.run(main())
-    sys.exit(exit_code)
+
+    asyncio.run(main())

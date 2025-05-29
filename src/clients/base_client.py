@@ -1,6 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, Union
+
 import httpx
 
 from src.utils.constants import DEFAULT_REQUEST_TIMEOUT, LOG_FORMAT
@@ -37,12 +38,11 @@ class BaseAPIClient(ABC):
             self,
             method: str,
             url: str,
-            data: Optional[Union[str, Dict[str, Any]]] = None,
-            timeout: int = DEFAULT_REQUEST_TIMEOUT
+            data: Optional[Union[str, Dict[str, Any]]] = None
     ) -> Optional[Dict[str, Any]]:
         """Make HTTP request with error handling and logging."""
         client = await self._get_client()
-        
+
         try:
             if method.upper() == "GET":
                 response = await client.get(url, headers=self._headers)
@@ -71,9 +71,9 @@ class BaseAPIClient(ABC):
         """Make GET request."""
         return await self._make_request("GET", url, **kwargs)
 
-    async def post(self, url: str, data: Optional[Union[str, Dict[str, Any]]] = None, **kwargs) -> Optional[Dict[str, Any]]:
+    async def post(self, url: str, data: Optional[Union[str, Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
         """Make POST request."""
-        return await self._make_request("POST", url, data, **kwargs)
+        return await self._make_request("POST", url, data)
 
     async def close(self):
         """Close the httpx client."""

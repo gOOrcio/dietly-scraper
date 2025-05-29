@@ -29,7 +29,7 @@ jobs:
         echo '${{ secrets.USERS_YAML }}' > config/users.yaml
         echo '${{ secrets.SITES_YAML }}' > config/sites.yaml
     
-    - name: Run dietly scraper
+    - name: Run dietly to fitatu sync
       id: sync
       run: |
         set +e  # Don't exit on non-zero exit codes
