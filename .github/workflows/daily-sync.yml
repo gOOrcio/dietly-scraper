@@ -72,4 +72,4 @@ jobs:
       if: failure()
       run: |
         echo "::error::Dietly Sync Failed - Check logs for details"
-        echo "::error::Job failed at $(date) - Manual intervention may be required" 
+        echo "::error::Job failed at $(date) - Manual intervention may be required"

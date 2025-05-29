@@ -131,6 +131,61 @@ tail -f logs/scraper_*.log
 - ✅ Built-in secrets management
 - ✅ Execution history and logs
 
+## 📱 Mobile Notifications
+
+Get instant alerts when sync jobs fail! Choose your preferred method:
+
+### 🥇 **Telegram Bot (Recommended)**
+
+**Setup:**
+1. **Create Bot:**
+   - Message `@BotFather` on Telegram
+   - Send `/newbot` → Choose name → Save **Bot Token**
+
+2. **Get Chat ID:**
+   - Message your bot anything
+   - Visit: `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
+   - Copy your `chat.id` from the JSON response
+
+3. **Add GitHub Secrets:**
+   ```
+   TELEGRAM_BOT_TOKEN: 1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+   TELEGRAM_CHAT_ID: 123456789
+   ALWAYS_NOTIFY: true  # Optional: get success notifications too
+   ```
+
+**Sample Notification:**
+```
+🍽️ Dietly Sync Report
+
+⚠️ Status: Partial Success - Some users failed
+📅 Date: 2025-01-20 08:00 UTC
+🔗 Logs: View Details
+Exit Code: 1
+```
+
+### 🥈 **GitHub Mobile App**
+
+**Setup:**
+1. Install **GitHub Mobile App**
+2. Repository **Settings** → **Notifications** → Enable **Actions**
+3. Phone notifications settings → Enable **GitHub**
+
+### 🔧 **Notification Triggers**
+
+The workflow sends notifications based on exit codes:
+
+| Exit Code | Trigger | Message |
+|-----------|---------|---------|
+| **0** | Success | No notification (unless `ALWAYS_NOTIFY=true`) |
+| **1** | Partial failure | ⚠️ Some users failed to sync |
+| **2** | Complete failure | ❌ All users failed to sync |
+
+**Smart notifications:**
+- 🍽️ **No menu found** = No notification (normal on weekends)
+- ⚠️ **Some users failed** = Warning notification  
+- ❌ **All users failed** = Critical notification
+
 ### 🥈 Docker (Cross-platform)
 
 ```bash
