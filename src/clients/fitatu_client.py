@@ -20,8 +20,8 @@ logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 class FitatuClient(BaseAPIClient):
     """Client for interacting with Fitatu API for diet plan management."""
 
-    def __init__(self, sites_config: SiteConfiguration, credentials: FitatuCredentials, brand: str, headless: bool = True):
-        super().__init__(headless)
+    def __init__(self, sites_config: SiteConfiguration, credentials: FitatuCredentials, brand: str):
+        super().__init__()
         self.sites_config = sites_config
         self.credentials = credentials
         self.brand = brand

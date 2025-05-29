@@ -102,8 +102,7 @@ async def sync_menu_to_fitatu(menu: MenuResponse, company_name: str, user, sites
         fitatu = FitatuClient(
             sites_config=sites.fitatu,
             credentials=user.fitatu_credentials,
-            brand=company_name,
-            headless=True
+            brand=company_name
         )
 
         try:

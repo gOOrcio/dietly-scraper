@@ -184,8 +184,6 @@ crontab -e
 
 ```bash
 # Override default configurations
-export DIETLY_HEADLESS=false          # Show browser during scraping
-export FITATU_BRAND="Custom Brand"    # Override default brand name
 export LOG_LEVEL=DEBUG                # Increase logging verbosity
 ```
 
@@ -427,9 +425,6 @@ The application includes comprehensive error handling:
 ```bash
 # Run with detailed logging
 LOG_LEVEL=DEBUG uv run python main.py
-
-# Run with visible browser
-DIETLY_HEADLESS=false uv run python main.py
 
 # Test specific component
 uv run python -c "
