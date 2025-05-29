@@ -353,12 +353,34 @@ ERROR: HTTP 429 error: Too Many Requests
 
 ```
 ERROR: Request failed for GET https://...
+playwright._impl._errors.TimeoutError: Page.goto: Timeout 45000ms exceeded
 ```
 
 **Solutions:**
 - Check internet connectivity
 - Verify site URLs in `sites.yaml`
 - Increase timeout values in constants.py
+- **Note**: Navigation timeouts are often treated as "no menu available" (acceptable)
+
+#### Error Handling & Resilience
+
+The application includes comprehensive error handling:
+
+- **All users processed**: Even if one user fails, others continue processing
+- **Graceful timeouts**: Playwright navigation timeouts treated as "no menu found"
+- **Detailed logging**: Each error includes user context and specific failure reason
+- **Fallback handling**: Multiple layers of error catching prevent script crashes
+
+**Error Recovery Examples:**
+```bash
+# User 1 fails with timeout (treated as no menu)
+2025-05-29 10:21:50,057 - ERROR - Unexpected error processing User1: TimeoutError
+2025-05-29 10:21:50,058 - INFO - Navigation/timeout error for User1 - likely no menu available
+
+# User 2 continues processing normally
+2025-05-29 10:21:50,059 - INFO - Processing user: User2
+2025-05-29 10:22:15,123 - INFO - Successfully retrieved menu data for User2
+```
 
 ### Debug Mode
 

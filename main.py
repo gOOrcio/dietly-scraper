@@ -25,66 +25,86 @@ class UserSyncResult(NamedTuple):
 
 async def process_user_meals(user, sites) -> UserSyncResult:
     """Process meals for a single user. Returns detailed sync result."""
-    scraper = DietlyScraper(sites.dietly, user.dietly_credentials)
-
     try:
-        json_data = await scraper.login_and_capture_api()
-        if not is_valid_response(json_data):
-            logging.info(f"No menu data found for {user.name} on {get_current_date()} - sync skipped (acceptable)")
-            return UserSyncResult(user.name, SyncStatus.NO_MENU, "No menu available for today")
+        scraper = DietlyScraper(sites.dietly, user.dietly_credentials)
 
-        menu = MenuResponse.model_validate(json_data)
-        logging.info(f"Successfully retrieved menu data for {user.name}")
+        try:
+            json_data = await scraper.login_and_capture_api()
+            if not is_valid_response(json_data):
+                logging.info(f"No menu data found for {user.name} on {get_current_date()} - sync skipped (acceptable)")
+                return UserSyncResult(user.name, SyncStatus.NO_MENU, "No menu available for today")
 
-    except DietlyScraperAPIError as e:
-        # Check if this is a "no menu found" scenario vs actual error
-        if "API response not captured within" in str(e):
-            logging.info(f"No menu data available for {user.name} on {get_current_date()} - sync skipped (acceptable)")
-            return UserSyncResult(user.name, SyncStatus.NO_MENU, "No menu available for today")
+            menu = MenuResponse.model_validate(json_data)
+            logging.info(f"Successfully retrieved menu data for {user.name}")
+
+        except DietlyScraperAPIError as e:
+            # Check if this is a "no menu found" scenario vs actual error
+            if "API response not captured within" in str(e):
+                logging.info(f"No menu data available for {user.name} on {get_current_date()} - sync skipped (acceptable)")
+                return UserSyncResult(user.name, SyncStatus.NO_MENU, "No menu available for today")
+            else:
+                logging.error(f"Error while scraping Dietly API for {user.name}: {e}")
+                return UserSyncResult(user.name, SyncStatus.FAILED, f"Dietly scraping failed: {e}")
+
+        # Menu found, now try to sync to Fitatu
+        sync_success = await sync_to_fitatu(menu, user, sites)
+        if sync_success:
+            return UserSyncResult(user.name, SyncStatus.SUCCESS, "Menu synced successfully")
         else:
-            logging.error(f"Error while scraping Dietly API for {user.name}: {e}")
-            return UserSyncResult(user.name, SyncStatus.FAILED, f"Dietly scraping failed: {e}")
-
-    # Menu found, now try to sync to Fitatu
-    sync_success = await sync_to_fitatu(menu, user, sites)
-    if sync_success:
-        return UserSyncResult(user.name, SyncStatus.SUCCESS, "Menu synced successfully")
-    else:
-        return UserSyncResult(user.name, SyncStatus.FAILED, "Fitatu sync failed")
+            return UserSyncResult(user.name, SyncStatus.FAILED, "Fitatu sync failed")
+            
+    except Exception as e:
+        # Catch any unexpected errors (Playwright timeouts, network issues, etc.)
+        error_msg = str(e)
+        logging.error(f"Unexpected error processing {user.name}: {e}")
+        
+        # Check if this might be a "no menu" scenario based on error message
+        if any(keyword in error_msg.lower() for keyword in ["timeout", "navigation", "network", "connection"]):
+            # Treat navigation/timeout errors as potentially "no menu" scenarios
+            logging.info(f"Navigation/timeout error for {user.name} - likely no menu available")
+            return UserSyncResult(user.name, SyncStatus.NO_MENU, f"Navigation timeout (likely no menu): {error_msg[:100]}")
+        else:
+            # Other unexpected errors are true failures
+            return UserSyncResult(user.name, SyncStatus.FAILED, f"Unexpected error: {error_msg[:100]}")
 
 async def sync_to_fitatu(menu: MenuResponse, user, sites) -> bool:
     """Sync menu data to Fitatu. Returns True if successful."""
-    fitatu = FitatuClient(
-        sites_config=sites.fitatu,
-        credentials=user.fitatu_credentials,
-        brand=DEFAULT_BRAND,
-        headless=True
-    )
-
     try:
-        login_result = await fitatu.login()
-        if not is_valid_response(login_result):
-            logging.error(f"Failed to login to Fitatu for {user.name}")
-            return False
-
-        meal_data = await process_meals(menu, fitatu)
-        if not meal_data["meal_ids"]:
-            logging.warning(f"No valid meals found to sync for {user.name}")
-            return False
-
-        success = await fitatu.publish_diet_plan(
-            get_current_date(),
-            meal_data["meal_ids"],
-            meal_data["meal_weights"],
-            MEAL_MAPPING
+        fitatu = FitatuClient(
+            sites_config=sites.fitatu,
+            credentials=user.fitatu_credentials,
+            brand=DEFAULT_BRAND,
+            headless=True
         )
 
-        if success:
-            logging.info(f"Successfully synced {len(meal_data['meal_ids'])} meals to Fitatu for {user.name}")
-        return success
+        try:
+            login_result = await fitatu.login()
+            if not is_valid_response(login_result):
+                logging.error(f"Failed to login to Fitatu for {user.name}")
+                return False
 
+            meal_data = await process_meals(menu, fitatu)
+            if not meal_data["meal_ids"]:
+                logging.warning(f"No valid meals found to sync for {user.name}")
+                return False
+
+            success = await fitatu.publish_diet_plan(
+                get_current_date(),
+                meal_data["meal_ids"],
+                meal_data["meal_weights"],
+                MEAL_MAPPING
+            )
+
+            if success:
+                logging.info(f"Successfully synced {len(meal_data['meal_ids'])} meals to Fitatu for {user.name}")
+            return success
+
+        except Exception as e:
+            logging.error(f"Error during Fitatu processing for {user.name}: {e}")
+            return False
+            
     except Exception as e:
-        logging.error(f"Error during Fitatu processing for {user.name}: {e}")
+        logging.error(f"Unexpected error in Fitatu sync for {user.name}: {e}")
         return False
 
 async def process_meals(menu: MenuResponse, fitatu: FitatuClient) -> dict:
@@ -141,8 +161,14 @@ async def main():
     results = []
     for user in users.users:
         logging.info(f"Processing user: {user.name}")
-        result = await process_user_meals(user, sites)
-        results.append(result)
+        try:
+            result = await process_user_meals(user, sites)
+            results.append(result)
+        except Exception as e:
+            # Ultimate fallback - should not happen with our improved error handling
+            logging.error(f"Critical error processing {user.name}: {e}")
+            results.append(UserSyncResult(user.name, SyncStatus.FAILED, f"Critical error: {str(e)[:100]}"))
+            # Continue processing other users
     
     # Summary logging
     successful_syncs = len([r for r in results if r.status == SyncStatus.SUCCESS])

@@ -4,6 +4,7 @@ from typing import Optional, Callable, Any
 from playwright.async_api import async_playwright, BrowserContext, APIRequestContext
 
 from config_model import Site, DietlyCredentials
+from constants import PLAYWRIGHT_NAVIGATION_TIMEOUT, DIETLY_PROFILE_PATH
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -54,6 +55,10 @@ class DietlyScraper:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=self.headless)
             context = await browser.new_context()
+            # Set navigation timeout
+            context.set_default_navigation_timeout(PLAYWRIGHT_NAVIGATION_TIMEOUT)
+            context.set_default_timeout(PLAYWRIGHT_NAVIGATION_TIMEOUT)
+            
             api_context = await p.request.new_context(base_url=self.site.base_url)
             await self.login_with_api(api_context)
             await self.set_cookies_from_api(context, api_context)
@@ -78,7 +83,9 @@ class DietlyScraper:
             await context.route("**/*", route_handler)
 
             try:
-                await page.goto(self.site.base_url + "/profil-dietly", wait_until="networkidle")
+                profile_url = self.site.base_url + DIETLY_PROFILE_PATH
+                logging.info(f"Navigating to {profile_url}")
+                await page.goto(profile_url, wait_until="networkidle")
                 for _ in range(timeout * 2):
                     if api_captured: break
                     await page.wait_for_timeout(500)
