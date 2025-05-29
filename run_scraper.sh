@@ -33,6 +33,18 @@ else
 fi
 
 EXIT_CODE=$?
+
+# Log appropriate message based on exit code
+if [ $EXIT_CODE -eq 0 ]; then
+    echo "$(date): ✅ Scraper completed successfully - all users processed" >> "$LOG_FILE"
+elif [ $EXIT_CODE -eq 1 ]; then
+    echo "$(date): ⚠️ Scraper completed with warnings - partial success" >> "$LOG_FILE"
+elif [ $EXIT_CODE -eq 2 ]; then
+    echo "$(date): 💥 Scraper failed - no users synced successfully" >> "$LOG_FILE"
+else
+    echo "$(date): ❓ Scraper finished with unexpected exit code $EXIT_CODE" >> "$LOG_FILE"
+fi
+
 echo "$(date): Scraper finished with exit code $EXIT_CODE" >> "$LOG_FILE"
 
 # Keep only last 7 days of logs

@@ -35,4 +35,34 @@ jobs:
         echo '${{ secrets.SITES_YAML }}' > sites.yaml
     
     - name: Run dietly scraper
-      run: uv run python main.py 
+      id: sync
+      run: |
+        set +e  # Don't exit on non-zero exit codes
+        uv run python main.py
+        EXIT_CODE=$?
+        echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+        
+        # Set job status based on exit code
+        if [ $EXIT_CODE -eq 0 ]; then
+          echo "✅ All users processed successfully"
+        elif [ $EXIT_CODE -eq 1 ]; then
+          echo "⚠️ Partial success - some users failed to sync"
+          echo "status=warning" >> $GITHUB_OUTPUT
+        else
+          echo "💥 All users failed to sync"
+          echo "status=failure" >> $GITHUB_OUTPUT
+        fi
+        
+        exit $EXIT_CODE
+    
+    - name: Handle partial success
+      if: steps.sync.outputs.exit_code == '1'
+      run: |
+        echo "::warning::Some users failed to sync. Check logs for details."
+        exit 0  # Don't fail the job for partial success
+    
+    - name: Handle complete failure
+      if: steps.sync.outputs.exit_code == '2'
+      run: |
+        echo "::error::All users failed to sync. Manual intervention required."
+        exit 1  # Fail the job for complete failure 

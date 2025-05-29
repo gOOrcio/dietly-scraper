@@ -22,7 +22,19 @@ services:
     command: >
       sh -c "
         apk add --no-cache docker-cli dcron &&
-        echo '0 8 * * * docker-compose -f /docker-compose.yml run --rm dietly-scraper >> /logs/cron.log 2>&1' | crontab - &&
+        echo '0 8 * * * /bin/sh -c \"
+          echo \"$(date): Starting Dietly sync...\" >> /logs/cron.log 2>&1 &&
+          docker-compose -f /docker-compose.yml run --rm dietly-scraper >> /logs/sync.log 2>&1 ;
+          EXIT_CODE=\$$? ;
+          if [ \$$EXIT_CODE -eq 0 ]; then
+            echo \"$(date): ✅ All users processed successfully\" >> /logs/cron.log 2>&1 ;
+          elif [ \$$EXIT_CODE -eq 1 ]; then
+            echo \"$(date): ⚠️ Partial success - some users failed\" >> /logs/cron.log 2>&1 ;
+          else
+            echo \"$(date): 💥 All users failed to sync\" >> /logs/cron.log 2>&1 ;
+          fi ;
+          echo \"$(date): Sync completed with exit code \$$EXIT_CODE\" >> /logs/cron.log 2>&1
+        \"' | crontab - &&
         crond -f -l 2
       "
     restart: unless-stopped 

@@ -177,6 +177,53 @@ export FITATU_BRAND="Custom Brand"    # Override default brand name
 export LOG_LEVEL=DEBUG                # Increase logging verbosity
 ```
 
+## 📊 Exit Codes & Status Handling
+
+The application uses specific exit codes to indicate different sync outcomes:
+
+| Exit Code | Status | Description | Cron/CI Behavior |
+|-----------|--------|-------------|------------------|
+| **0** | ✅ Success | All users processed successfully | Job marked as passed |
+| **1** | ⚠️ Partial | Some users synced, others failed | Job marked as warning |
+| **2** | ❌ Failed | No users synced successfully | Job marked as failed |
+
+### Sync Scenarios
+
+The application distinguishes between different scenarios:
+
+**🍽️ No Menu Available**
+- When no menu is found for today (common on weekends/holidays)
+- Treated as **acceptable** and doesn't count as failure
+- Logs: `ℹ️ No menu data found for [user] - sync skipped (acceptable)`
+
+**✅ Successful Sync**
+- Menu found and successfully synced to Fitatu
+- Logs: `✅ [user]: Menu synced successfully`
+
+**❌ Sync Failed**
+- Menu found but Fitatu sync failed (auth, API errors, etc.)
+- Treated as **failure** requiring attention
+- Logs: `❌ [user]: Fitatu sync failed`
+
+### Example Log Output
+
+```
+2025-05-29 09:55:15,850 - INFO - Starting Dietly sync for 2025-05-29
+2025-05-29 09:55:15,851 - INFO - Processing user: User1
+2025-05-29 09:55:25,157 - INFO - No menu data found for User1 on 2025-05-29 - sync skipped (acceptable)
+2025-05-29 09:55:25,157 - INFO - Processing user: User2  
+2025-05-29 09:55:35,260 - ERROR - Failed to login to Fitatu for User2
+2025-05-29 09:55:35,260 - INFO - === SYNC SUMMARY ===
+2025-05-29 09:55:35,260 - INFO - Total users: 2
+2025-05-29 09:55:35,260 - INFO - Successful syncs: 0
+2025-05-29 09:55:35,260 - INFO - No menu available: 1
+2025-05-29 09:55:35,260 - INFO - Failed syncs: 1
+2025-05-29 09:55:35,260 - INFO - ℹ️ User1: No menu available for today
+2025-05-29 09:55:35,260 - INFO - ❌ User2: Fitatu sync failed
+2025-05-29 09:55:35,260 - WARNING - ⚠️ Partial success - some users failed to sync
+2025-05-29 09:55:35,260 - INFO - Sync completed with exit code: 1
+```
+
 ## 📊 Monitoring & Logging
 
 ### Log Levels
