@@ -65,4 +65,11 @@ jobs:
       if: steps.sync.outputs.exit_code == '2'
       run: |
         echo "::error::All users failed to sync. Manual intervention required."
-        exit 1  # Fail the job for complete failure 
+        exit 1  # Fail the job for complete failure
+        
+    # Notification step for failures
+    - name: Notify on failure
+      if: failure()
+      run: |
+        echo "::error::Dietly Sync Failed - Check logs for details"
+        echo "::error::Job failed at $(date) - Manual intervention may be required" 
