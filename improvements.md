@@ -79,7 +79,7 @@ This document outlines potential improvements and enhancements for the Dietly Sc
 - [ ] Progress indicators for long-running operations
 
 ### Maintenance
-- [ ] Automated dependency updates
-- [ ] Breaking change detection for external APIs
-- [ ] Migration scripts for configuration updates
-- [ ] Health check commands for troubleshooting 
+- [x] Automated dependency updates
+- [x] Breaking change detection for external APIs
+- [x] Migration scripts for configuration updates
+- [x] Health check commands for troubleshooting 
