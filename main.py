@@ -59,12 +59,7 @@ async def process_user_meal_sync(user, sites) -> UserSyncResult:
                     logging.error(f"Menu validation failed for {user.name}:")
                     logging.error(f"Validation errors: {ve}")
                     logging.debug(f"Raw menu data structure: {_truncate_for_debug(menu_data)}")
-
-                    _log_dietary_exclusion_debug_info(menu_data, user.name)
-                    
                     return UserSyncResult(user.name, SyncStatus.FAILED, f"Menu validation failed: {str(ve)[:200]}")
-                
-                _warn_about_data_quality_issues(menu, user.name)
                 
                 logging.info(f"Successfully retrieved menu data for {user.name} from {company_name}")
 
@@ -97,7 +92,6 @@ async def process_user_meal_sync(user, sites) -> UserSyncResult:
             logging.info(f"HTTP/timeout error for {user.name} - likely no menu available")
             return UserSyncResult(user.name, SyncStatus.NO_MENU, f"HTTP timeout (likely no menu): {error_msg[:100]}")
         else:
-            # Other unexpected errors are true failures
             return UserSyncResult(user.name, SyncStatus.FAILED, f"Unexpected error: {error_msg[:100]}")
 
 
@@ -282,49 +276,6 @@ def _truncate_for_debug(data: dict, max_items: int = 3) -> dict:
         truncated["..."] = f"and {len(data) - max_items} more keys"
     
     return truncated
-
-
-def _log_dietary_exclusion_debug_info(menu_data: dict, user_name: str):
-    """Log specific debug information about dietaryExclusionId None values."""
-    try:
-        meals = menu_data.get('deliveryMenuMeal', [])
-        for i, meal in enumerate(meals):
-            allergens = meal.get('allergensWithExcluded', [])
-            for j, allergen in enumerate(allergens):
-                if allergen.get('dietaryExclusionId') is None:
-                    logging.error(f"DEBUG - {user_name}: meal[{i}] '{meal.get('mealName', 'unknown')}' allergensWithExcluded[{j}] has None dietaryExclusionId")
-                    logging.error(f"DEBUG - Full allergen data: {allergen}")
-            
-            # Also check ingredient exclusions in raw data
-            for ingredient in meal.get('ingredients', []):
-                for k, exclusion in enumerate(ingredient.get('exclusion', [])):
-                    if exclusion.get('dietaryExclusionId') is None:
-                        logging.error(f"DEBUG - {user_name}: meal[{i}] '{meal.get('mealName', 'unknown')}' ingredient '{ingredient.get('name', 'unknown')}' exclusion[{k}] has None dietaryExclusionId")
-                        logging.error(f"DEBUG - Full exclusion data: {exclusion}")
-    except Exception as e:
-        logging.error(f"Error in debug logging for {user_name}: {e}")
-
-
-def _warn_about_data_quality_issues(menu: MenuResponse, user_name: str):
-    """Log warnings about data quality issues (None dietaryExclusionId values)."""
-    try:
-        meals = menu.deliveryMenuMeal
-        for i, meal in enumerate(meals):
-            allergens = meal.allergensWithExcluded
-            for j, allergen in enumerate(allergens):
-                if allergen.dietaryExclusionId is None:
-                    logging.warning(f"WARNING - {user_name}: meal[{i}] '{meal.mealName}' allergensWithExcluded[{j}] has None dietaryExclusionId")
-                    logging.warning(f"WARNING - Allergen details: companyAllergenName={allergen.companyAllergenName}, dietlyAllergenName={allergen.dietlyAllergenName}, excluded={allergen.excluded}")
-            
-            # Also check ingredient exclusions
-            for ingredient in meal.ingredients:
-                for k, exclusion in enumerate(ingredient.exclusion):
-                    if exclusion.dietaryExclusionId is None:
-                        logging.warning(f"WARNING - {user_name}: meal[{i}] '{meal.mealName}' ingredient '{ingredient.name}' exclusion[{k}] has None dietaryExclusionId")
-                        logging.warning(f"WARNING - Exclusion details: name={exclusion.name}, chosen={exclusion.chosen}")
-    except Exception as e:
-        logging.error(f"Error in data quality logging for {user_name}: {e}")
-
 
 if __name__ == "__main__":
     import asyncio
