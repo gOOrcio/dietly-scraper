@@ -17,14 +17,14 @@ class Nutrition(BaseModel):
 
 
 class AllergenWithExcluded(BaseModel):
-    dietaryExclusionId: int
+    dietaryExclusionId: Optional[int]
     companyAllergenName: str
     dietlyAllergenName: str
     excluded: bool
 
 
 class IngredientExclusion(BaseModel):
-    dietaryExclusionId: int
+    dietaryExclusionId: Optional[int]
     name: str
     chosen: bool
 

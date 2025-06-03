@@ -3,6 +3,7 @@ import sys
 from enum import Enum
 from typing import NamedTuple
 
+from pydantic import ValidationError
 from src.clients.dietly_client import DietlyClient, DietlyClientAPIError, DietlyNoActivePlanError
 from src.clients.fitatu_client import FitatuClient
 from src.models.add_product_model import convert_menu_meal_to_nutrition_product
@@ -51,7 +52,20 @@ async def process_user_meal_sync(user, sites) -> UserSyncResult:
                     logging.info(f"No valid menu data found for {user.name} on {get_current_date_iso()} - sync skipped (acceptable)")
                     return UserSyncResult(user.name, SyncStatus.NO_MENU, NO_MENU_MEALS_MSG)
 
-                menu = MenuResponse.model_validate(menu_data)
+                logging.info(f"Retrieved menu data for delivery {menu_data.get('deliveryId', 'unknown')}")
+                try:
+                    menu = MenuResponse.model_validate(menu_data)
+                except ValidationError as ve:
+                    logging.error(f"Menu validation failed for {user.name}:")
+                    logging.error(f"Validation errors: {ve}")
+                    logging.debug(f"Raw menu data structure: {_truncate_for_debug(menu_data)}")
+
+                    _log_dietary_exclusion_debug_info(menu_data, user.name)
+                    
+                    return UserSyncResult(user.name, SyncStatus.FAILED, f"Menu validation failed: {str(ve)[:200]}")
+                
+                _warn_about_data_quality_issues(menu, user.name)
+                
                 logging.info(f"Successfully retrieved menu data for {user.name} from {company_name}")
 
             except DietlyNoActivePlanError as e:
@@ -71,14 +85,15 @@ async def process_user_meal_sync(user, sites) -> UserSyncResult:
             else:
                 return UserSyncResult(user.name, SyncStatus.FAILED, "Fitatu sync failed")
 
+    except ValidationError as ve:
+        logging.error(f"Validation error processing {user.name}: {ve}")
+        return UserSyncResult(user.name, SyncStatus.FAILED, f"Data validation failed: {str(ve)[:200]}")
+    
     except Exception as e:
-        # Catch any unexpected errors (httpx timeouts, network issues, etc.)
         error_msg = str(e)
         logging.error(f"Unexpected error processing {user.name}: {e}")
 
-        # Check if this might be a "no menu" scenario based on error message
         if any(keyword in error_msg.lower() for keyword in ["timeout", "connection", "network", "http"]):
-            # Treat HTTP/timeout errors as potentially "no menu" scenarios
             logging.info(f"HTTP/timeout error for {user.name} - likely no menu available")
             return UserSyncResult(user.name, SyncStatus.NO_MENU, f"HTTP timeout (likely no menu): {error_msg[:100]}")
         else:
@@ -247,6 +262,68 @@ async def main():
         logging.error("💥 All users failed to sync")
 
     return sys.exit(exit_code)
+
+
+def _truncate_for_debug(data: dict, max_items: int = 3) -> dict:
+    """Truncate menu data for debug logging to avoid overwhelming logs."""
+    if not isinstance(data, dict):
+        return data
+    
+    truncated = {}
+    for key, value in list(data.items())[:max_items]:
+        if isinstance(value, list) and len(value) > 2:
+            truncated[key] = f"[{len(value)} items] " + str(value[:2]) + "..."
+        elif isinstance(value, dict):
+            truncated[key] = _truncate_for_debug(value, max_items=2)
+        else:
+            truncated[key] = value
+    
+    if len(data) > max_items:
+        truncated["..."] = f"and {len(data) - max_items} more keys"
+    
+    return truncated
+
+
+def _log_dietary_exclusion_debug_info(menu_data: dict, user_name: str):
+    """Log specific debug information about dietaryExclusionId None values."""
+    try:
+        meals = menu_data.get('deliveryMenuMeal', [])
+        for i, meal in enumerate(meals):
+            allergens = meal.get('allergensWithExcluded', [])
+            for j, allergen in enumerate(allergens):
+                if allergen.get('dietaryExclusionId') is None:
+                    logging.error(f"DEBUG - {user_name}: meal[{i}] '{meal.get('mealName', 'unknown')}' allergensWithExcluded[{j}] has None dietaryExclusionId")
+                    logging.error(f"DEBUG - Full allergen data: {allergen}")
+            
+            # Also check ingredient exclusions in raw data
+            for ingredient in meal.get('ingredients', []):
+                for k, exclusion in enumerate(ingredient.get('exclusion', [])):
+                    if exclusion.get('dietaryExclusionId') is None:
+                        logging.error(f"DEBUG - {user_name}: meal[{i}] '{meal.get('mealName', 'unknown')}' ingredient '{ingredient.get('name', 'unknown')}' exclusion[{k}] has None dietaryExclusionId")
+                        logging.error(f"DEBUG - Full exclusion data: {exclusion}")
+    except Exception as e:
+        logging.error(f"Error in debug logging for {user_name}: {e}")
+
+
+def _warn_about_data_quality_issues(menu: MenuResponse, user_name: str):
+    """Log warnings about data quality issues (None dietaryExclusionId values)."""
+    try:
+        meals = menu.deliveryMenuMeal
+        for i, meal in enumerate(meals):
+            allergens = meal.allergensWithExcluded
+            for j, allergen in enumerate(allergens):
+                if allergen.dietaryExclusionId is None:
+                    logging.warning(f"WARNING - {user_name}: meal[{i}] '{meal.mealName}' allergensWithExcluded[{j}] has None dietaryExclusionId")
+                    logging.warning(f"WARNING - Allergen details: companyAllergenName={allergen.companyAllergenName}, dietlyAllergenName={allergen.dietlyAllergenName}, excluded={allergen.excluded}")
+            
+            # Also check ingredient exclusions
+            for ingredient in meal.ingredients:
+                for k, exclusion in enumerate(ingredient.exclusion):
+                    if exclusion.dietaryExclusionId is None:
+                        logging.warning(f"WARNING - {user_name}: meal[{i}] '{meal.mealName}' ingredient '{ingredient.name}' exclusion[{k}] has None dietaryExclusionId")
+                        logging.warning(f"WARNING - Exclusion details: name={exclusion.name}, chosen={exclusion.chosen}")
+    except Exception as e:
+        logging.error(f"Error in data quality logging for {user_name}: {e}")
 
 
 if __name__ == "__main__":
