@@ -36,12 +36,13 @@ def extract_user_id_from_jwt_token(token: str) -> Optional[str]:
         decoded = base64.b64decode(payload)
         payload_data = json.loads(decoded)
 
-        user_id = payload_data.get('userIdentifier')
+        # Try different possible user ID field names
+        user_id = payload_data.get('id') or payload_data.get('userIdentifier')
         if user_id:
             logging.info(f"Successfully extracted user ID: {user_id}")
             return str(user_id)
         else:
-            logging.error("User ID not found in JWT payload")
+            logging.error("User ID not found in JWT payload - tried 'id' and 'userIdentifier' fields")
             return None
 
     except (json.JSONDecodeError, binascii.Error) as e:
