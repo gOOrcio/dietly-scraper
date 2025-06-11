@@ -248,24 +248,48 @@ class FitatuClient(BaseAPIClient):
         existing_plan = await self.get_existing_diet_plan_for_date(date)
         diet_plan = {date: {"dietPlan": {}}}
 
-        # Mark outdated meals for deletion
+        # Get all existing product IDs across all meal types for this brand
+        all_existing_product_ids = set()
         for meal_key, items in existing_plan.items():
             for item in items:
-                if item["productId"] not in meal_ids.values():
-                    item["deletedAt"] = get_current_timestamp_iso()
-                    logging.info(f"Marking '{item.get('name', 'Unknown')}' as deleted")
-            diet_plan[date]["dietPlan"][meal_key] = {"items": [item for item in items if "deletedAt" in item]}
+                if item.get("brand") == self.brand:
+                    all_existing_product_ids.add(item.get("productId"))
 
-        # Add new meals
+        # Mark outdated meals for deletion (meals that exist but are not in today's menu)
+        for meal_key, items in existing_plan.items():
+            updated_items = []
+            for item in items:
+                # Only process items from our brand
+                if item.get("brand") == self.brand:
+                    # If this product is not in today's menu, mark it for deletion
+                    if item["productId"] not in meal_ids.values():
+                        item["deletedAt"] = get_current_timestamp_iso()
+                        logging.info(f"Marking '{item.get('name', 'Unknown')}' as deleted (no longer in menu)")
+                        updated_items.append(item)
+                    # If it's in today's menu, keep it but don't re-add it
+                    else:
+                        logging.info(f"Keeping existing meal '{item.get('name', 'Unknown')}' - already in diet plan")
+                        updated_items.append(item)
+                else:
+                    # Keep items from other brands unchanged
+                    updated_items.append(item)
+            
+            if updated_items:
+                diet_plan[date]["dietPlan"][meal_key] = {"items": updated_items}
+
+        # Add new meals (only if not already present)
         for meal_name, meal_id in meal_ids.items():
-            self._add_meal_to_diet_plan(
-                diet_plan[date]["dietPlan"],
-                meal_name,
-                meal_id,
-                meal_weights.get(meal_name, DEFAULT_MEAL_WEIGHT),
-                existing_plan,
-                meal_mapping
-            )
+            if meal_id not in all_existing_product_ids:
+                self._add_meal_to_diet_plan(
+                    diet_plan[date]["dietPlan"],
+                    meal_name,
+                    meal_id,
+                    meal_weights.get(meal_name, DEFAULT_MEAL_WEIGHT),
+                    existing_plan,
+                    meal_mapping
+                )
+            else:
+                logging.info(f"Skipping '{meal_name}' - product {meal_id} already exists in diet plan")
 
         return await self.update_diet_plan_for_date(date, diet_plan)
 
@@ -286,11 +310,18 @@ class FitatuClient(BaseAPIClient):
             logging.info(f"Skipping '{meal_name}' - not supported meal by mapping configuration")
             return
 
-        if meal_id and mapped_key in existing_plan and any(item.get("productId") == meal_id for item in existing_plan[mapped_key]):
-            logging.info(f"Skipping '{meal_name}' - already exists in diet plan")
-            return
+        # Double-check that this product ID doesn't already exist in this meal category
+        if mapped_key in existing_plan:
+            existing_product_ids = {item.get("productId") for item in existing_plan[mapped_key] if not item.get("deletedAt")}
+            if meal_id in existing_product_ids:
+                logging.info(f"Skipping '{meal_name}' - product {meal_id} already exists in {mapped_key}")
+                return
 
-        diet_plan.setdefault(mapped_key, {"items": []})["items"].append({
+        # Initialize meal category if it doesn't exist
+        if mapped_key not in diet_plan:
+            diet_plan[mapped_key] = {"items": []}
+
+        diet_plan[mapped_key]["items"].append({
             "planDayDietItemId": str(uuid.uuid1()),
             "foodType": "PRODUCT",
             "measureId": 1,
@@ -299,4 +330,4 @@ class FitatuClient(BaseAPIClient):
             "source": "API",
             "updatedAt": get_current_timestamp_iso()
         })
-        logging.info(f"Added '{meal_name}' with product ID {meal_id} to diet plan")
+        logging.info(f"Added '{meal_name}' with product ID {meal_id} to diet plan ({mapped_key})")

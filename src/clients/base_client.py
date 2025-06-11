@@ -64,6 +64,44 @@ class BaseAPIClient(ABC):
             
         return False
 
+    def _decode_response_safely(self, response: httpx.Response) -> Optional[Dict[str, Any]]:
+        """Safely decode response with fallback encoding handling.
+        
+        Args:
+            response: HTTP response object
+            
+        Returns:
+            Decoded JSON data or None if decoding fails
+        """
+        try:
+            # First try the standard JSON parsing (UTF-8)
+            return response.json()
+        except UnicodeDecodeError as e:
+            logging.warning(f"UTF-8 decoding failed: {e}. Trying alternative encodings...")
+            
+            # Try common alternative encodings
+            for encoding in ['latin-1', 'windows-1252', 'iso-8859-1']:
+                try:
+                    # Get raw bytes and decode with alternative encoding
+                    content_bytes = response.content
+                    decoded_text = content_bytes.decode(encoding)
+                    
+                    # Try to parse as JSON
+                    import json
+                    return json.loads(decoded_text)
+                    
+                except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                    continue
+            
+            # If all encodings fail, log and return None
+            logging.error(f"Failed to decode response with any encoding. Response content preview: {response.content[:100]}")
+            return None
+            
+        except (ValueError, TypeError) as e:
+            # JSON parsing errors or other issues
+            logging.error(f"JSON parsing failed: {e}. Response content preview: {response.content[:100] if response.content else 'empty'}")
+            return None
+
     async def _make_request_with_retry(
             self,
             method: str,
@@ -161,7 +199,8 @@ class BaseAPIClient(ABC):
             logging.error(f"HTTP {response.status_code} error: {error_text}")
             return None
 
-        return response.json()
+        # Use safe decoding for JSON responses
+        return self._decode_response_safely(response)
 
     async def _make_request(
             self,
