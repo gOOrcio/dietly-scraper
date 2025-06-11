@@ -1,7 +1,7 @@
 import logging
 import sys
 from enum import Enum
-from typing import NamedTuple
+from typing import NamedTuple, List
 
 from pydantic import ValidationError
 from src.clients.dietly_client import DietlyClient, DietlyClientAPIError, DietlyNoActivePlanError
@@ -9,245 +9,127 @@ from src.clients.fitatu_client import FitatuClient
 from src.models.add_product_model import convert_menu_meal_to_nutrition_product
 from src.models.config_model import SitesConfiguration, UsersConfiguration
 from src.models.menu_response_model import MenuResponse
-from src.utils.constants import MEAL_MAPPING, LOG_FORMAT, EXIT_CODE_SUCCESS, EXIT_CODE_PARTIAL_FAILURE, EXIT_CODE_TOTAL_FAILURE, NO_MENU_MEALS_MSG, NO_ACTIVE_PLAN_MSG, RETRY_MAX_ATTEMPTS
-from src.utils.utils import get_current_date_iso, is_valid_api_response, retry_async
+from src.utils.constants import (
+    MEAL_MAPPING, LOG_FORMAT, EXIT_CODE_SUCCESS, EXIT_CODE_PARTIAL_FAILURE, 
+    EXIT_CODE_TOTAL_FAILURE, NO_MENU_MEALS_MSG, NO_ACTIVE_PLAN_MSG, RETRY_MAX_ATTEMPTS
+)
+from src.utils.utils import get_current_date_iso, is_valid_api_response
 
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 
 
 class SyncStatus(Enum):
-    """Status of user synchronization process."""
     SUCCESS = "success"
     NO_MENU = "no_menu"
     FAILED = "failed"
 
 
 class UserSyncResult(NamedTuple):
-    """Result of processing a single user."""
     user_name: str
     status: SyncStatus
     message: str
 
 
 def is_transient_error(error_msg: str) -> bool:
-    """Check if an error message indicates a transient failure that should be retried.
-    
-    Args:
-        error_msg: Error message to check
-        
-    Returns:
-        True if the error appears to be transient
-    """
-    transient_indicators = [
-        "503", "502", "500", "504",  # Server errors
-        "connection", "timeout", "network",  # Network issues
-        "service unavailable", "bad gateway",
-        "gateway timeout", "internal server error"
-    ]
-    
-    error_lower = error_msg.lower()
-    return any(indicator in error_lower for indicator in transient_indicators)
+    """Check if an error message indicates a transient failure."""
+    transient_indicators = ["503", "502", "500", "504", "connection", "timeout", "network"]
+    return any(indicator in error_msg.lower() for indicator in transient_indicators)
 
 
-async def process_user_meal_sync_with_retry(user, sites) -> UserSyncResult:
-    """Process meal synchronization for a single user with retry logic.
-    
-    Args:
-        user: User configuration
-        sites: Sites configuration
-        
-    Returns:
-        UserSyncResult with sync status and details
-    """
-    async def sync_attempt():
-        return await process_user_meal_sync_single_attempt(user, sites)
-    
-    # Define what errors should trigger a user-level retry
-    def should_retry_user_sync(result: UserSyncResult) -> bool:
-        if result.status != SyncStatus.FAILED:
-            return False
-        return is_transient_error(result.message)
-    
-    # Try the sync process with retries for transient failures
-    for attempt in range(RETRY_MAX_ATTEMPTS):
-        try:
-            result = await sync_attempt()
-            
-            # If it's not a failure, or not a transient failure, return immediately
-            if not should_retry_user_sync(result):
-                return result
-            
-            # If it's the last attempt, return the result regardless
-            if attempt == RETRY_MAX_ATTEMPTS - 1:
-                logging.warning(f"User-level retry exhausted for {user.name} after {RETRY_MAX_ATTEMPTS} attempts")
-                return result
-            
-            # Log the retry and continue
-            logging.warning(f"User {user.name} sync failed with transient error (attempt {attempt + 1}/{RETRY_MAX_ATTEMPTS}): {result.message}")
-            logging.info(f"Will retry user {user.name} sync in next attempt...")
-            
-        except Exception as e:
-            # Handle unexpected exceptions at user level
-            if attempt == RETRY_MAX_ATTEMPTS - 1:
-                logging.error(f"Unexpected error in user sync retry for {user.name}: {e}")
-                return UserSyncResult(user.name, SyncStatus.FAILED, f"Unexpected error: {str(e)[:100]}")
-    
-    # This should never be reached
-    return UserSyncResult(user.name, SyncStatus.FAILED, "User-level retry logic error")
-
-
-async def process_user_meal_sync_single_attempt(user, sites) -> UserSyncResult:
-    """Process meal synchronization for a single user - single attempt without retry.
-    
-    Args:
-        user: User configuration
-        sites: Sites configuration
-        
-    Returns:
-        UserSyncResult with sync status and details
-    """
-    try:
-        async with DietlyClient(sites.dietly, user.dietly_credentials) as client:
-            try:
-                api_result = await client.login_and_get_todays_menu()
-                if not api_result:
-                    logging.info(f"No menu data found for {user.name} on {get_current_date_iso()} - sync skipped (acceptable)")
-                    return UserSyncResult(user.name, SyncStatus.NO_MENU, NO_MENU_MEALS_MSG)
-
-                menu_data, company_name = api_result
-                if not is_valid_api_response(menu_data):
-                    logging.info(f"No valid menu data found for {user.name} on {get_current_date_iso()} - sync skipped (acceptable)")
-                    return UserSyncResult(user.name, SyncStatus.NO_MENU, NO_MENU_MEALS_MSG)
-
-                logging.info(f"Retrieved menu data for delivery {menu_data.get('deliveryId', 'unknown')}")
-                try:
-                    menu = MenuResponse.model_validate(menu_data)
-                except ValidationError as ve:
-                    logging.error(f"Menu validation failed for {user.name}:")
-                    logging.error(f"Validation errors: {ve}")
-                    logging.debug(f"Raw menu data structure: {_truncate_for_debug(menu_data)}")
-                    return UserSyncResult(user.name, SyncStatus.FAILED, f"Menu validation failed: {str(ve)[:200]}")
-                
-                logging.info(f"Successfully retrieved menu data for {user.name} from {company_name}")
-
-            except DietlyNoActivePlanError as e:
-                # No active plan is an acceptable state - treat as SUCCESS, not failure
-                logging.info(f"No active meal plan for {user.name} on {get_current_date_iso()} - sync skipped (acceptable)")
-                return UserSyncResult(user.name, SyncStatus.SUCCESS, NO_ACTIVE_PLAN_MSG)
-
-            except DietlyClientAPIError as e:
-                # Real failures from Dietly API - report as FAILED
-                logging.error(f"Dietly API error for {user.name}: {e}")
-                return UserSyncResult(user.name, SyncStatus.FAILED, f"Dietly API failed: {e}")
-
-            # Menu found, now try to sync to Fitatu
-            sync_success = await sync_menu_to_fitatu(menu, company_name, user, sites)
-            if sync_success:
-                return UserSyncResult(user.name, SyncStatus.SUCCESS, "Menu synced successfully")
-            else:
-                return UserSyncResult(user.name, SyncStatus.FAILED, "Fitatu sync failed")
-
-    except ValidationError as ve:
-        logging.error(f"Validation error processing {user.name}: {ve}")
-        return UserSyncResult(user.name, SyncStatus.FAILED, f"Data validation failed: {str(ve)[:200]}")
-    
-    except Exception as e:
-        error_msg = str(e)
-        logging.error(f"Unexpected error processing {user.name}: {e}")
-
-        if any(keyword in error_msg.lower() for keyword in ["timeout", "connection", "network", "http"]):
-            logging.info(f"HTTP/timeout error for {user.name} - likely no menu available")
-            return UserSyncResult(user.name, SyncStatus.NO_MENU, f"HTTP timeout (likely no menu): {error_msg[:100]}")
-        else:
-            return UserSyncResult(user.name, SyncStatus.FAILED, f"Unexpected error: {error_msg[:100]}")
-
-
-# Keep the original function name for backward compatibility
 async def process_user_meal_sync(user, sites) -> UserSyncResult:
-    """Process meal synchronization for a single user.
+    """Process meal synchronization for a single user with retry logic."""
     
-    This is the main entry point that includes user-level retry logic.
-    """
-    return await process_user_meal_sync_with_retry(user, sites)
+    async def sync_attempt():
+        try:
+            async with DietlyClient(sites.dietly, user.dietly_credentials) as client:
+                try:
+                    api_result = await client.login_and_get_todays_menu()
+                    if not api_result:
+                        return UserSyncResult(user.name, SyncStatus.NO_MENU, NO_MENU_MEALS_MSG)
+
+                    menu_data, company_name = api_result
+                    if not is_valid_api_response(menu_data):
+                        return UserSyncResult(user.name, SyncStatus.NO_MENU, NO_MENU_MEALS_MSG)
+
+                    menu = MenuResponse.model_validate(menu_data)
+                    logging.info(f"Successfully retrieved menu data for {user.name} from {company_name}")
+
+                except DietlyNoActivePlanError:
+                    return UserSyncResult(user.name, SyncStatus.SUCCESS, NO_ACTIVE_PLAN_MSG)
+                except DietlyClientAPIError as e:
+                    return UserSyncResult(user.name, SyncStatus.FAILED, f"Dietly API failed: {e}")
+
+                # Sync to Fitatu
+                if await sync_menu_to_fitatu(menu, company_name, user, sites):
+                    return UserSyncResult(user.name, SyncStatus.SUCCESS, "Menu synced successfully")
+                else:
+                    return UserSyncResult(user.name, SyncStatus.FAILED, "Fitatu sync failed")
+
+        except ValidationError as ve:
+            return UserSyncResult(user.name, SyncStatus.FAILED, f"Data validation failed: {str(ve)[:200]}")
+        except Exception as e:
+            error_msg = str(e)
+            if any(keyword in error_msg.lower() for keyword in ["timeout", "connection", "network", "http"]):
+                return UserSyncResult(user.name, SyncStatus.NO_MENU, f"HTTP timeout (likely no menu): {error_msg[:100]}")
+            else:
+                return UserSyncResult(user.name, SyncStatus.FAILED, f"Unexpected error: {error_msg[:100]}")
+
+    # Retry logic for transient failures
+    for attempt in range(RETRY_MAX_ATTEMPTS):
+        result = await sync_attempt()
+        
+        # Return immediately if not a transient failure or last attempt
+        if (result.status != SyncStatus.FAILED or 
+            not is_transient_error(result.message) or 
+            attempt == RETRY_MAX_ATTEMPTS - 1):
+            return result
+        
+        logging.warning(f"User {user.name} sync failed with transient error (attempt {attempt + 1}/{RETRY_MAX_ATTEMPTS}): {result.message}")
+
+    return result
 
 
 async def sync_menu_to_fitatu(menu: MenuResponse, company_name: str, user, sites) -> bool:
-    """Synchronize menu data to Fitatu service.
-    
-    Args:
-        menu: Menu response from Dietly API
-        company_name: Name of the meal company
-        user: User configuration
-        sites: Sites configuration
-        
-    Returns:
-        True if synchronization was successful, False otherwise
-    """
+    """Synchronize menu data to Fitatu service."""
     try:
-        fitatu = FitatuClient(
-            sites_config=sites.fitatu,
-            credentials=user.fitatu_credentials,
-            brand=company_name
-        )
-
-        try:
-            login_result = await fitatu.login()
-            if not is_valid_api_response(login_result):
-                logging.error(f"Failed to login to Fitatu for {user.name}")
-                return False
-
-            meal_data = await process_menu_meals(menu, fitatu)
-            if not meal_data["meal_ids"]:
-                logging.warning(f"No valid meals found to sync for {user.name}")
-                return False
-
-            success = await fitatu.publish_diet_plan(
-                get_current_date_iso(),
-                meal_data["meal_ids"],
-                meal_data["meal_weights"],
-                MEAL_MAPPING
-            )
-
-            if success:
-                logging.info(f"Successfully synced {len(meal_data['meal_ids'])} meals to Fitatu for {user.name}")
-            return success
-
-        except Exception as e:
-            logging.error(f"Error during Fitatu processing for {user.name}: {e}")
+        fitatu = FitatuClient(sites.fitatu, user.fitatu_credentials, company_name)
+        
+        if not await fitatu.login():
+            logging.error(f"Failed to login to Fitatu for {user.name}")
             return False
 
+        meal_data = await process_menu_meals(menu, fitatu)
+        if not meal_data["meal_ids"]:
+            logging.warning(f"No valid meals found to sync for {user.name}")
+            return False
+
+        success = await fitatu.publish_diet_plan(
+            get_current_date_iso(), meal_data["meal_ids"], 
+            meal_data["meal_weights"], MEAL_MAPPING
+        )
+
+        if success:
+            logging.info(f"Successfully synced {len(meal_data['meal_ids'])} meals to Fitatu for {user.name}")
+        return success
+
     except Exception as e:
-        logging.error(f"Unexpected error in Fitatu sync for {user.name}: {e}")
+        logging.error(f"Error during Fitatu processing for {user.name}: {e}")
         return False
 
 
 async def process_menu_meals(menu: MenuResponse, fitatu: FitatuClient) -> dict:
-    """Process individual meals from menu and convert to Fitatu products.
-    
-    Args:
-        menu: Menu response containing meals
-        fitatu: Fitatu client instance
-        
-    Returns:
-        Dictionary with meal_ids and meal_weights
-    """
-    meal_ids = {}
-    meal_weights = {}
+    """Process individual meals from menu and convert to Fitatu products."""
+    meal_ids, meal_weights = {}, {}
     today = get_current_date_iso()
 
     for meal in menu.deliveryMenuMeal:
         if meal.deliveryMealId is None:
-            logging.info(f"Skipping '{meal.mealName}' - no delivery")
             continue
 
         product = convert_menu_meal_to_nutrition_product(meal, fitatu.brand)
-        
-        # Get the English meal type for search API
         meal_type_english = MEAL_MAPPING.get(meal.mealName, "breakfast")
         
-        product_id = await fitatu.create_or_find_product(product, today, meal_type_english)
-
-        if product_id:
+        if product_id := await fitatu.create_or_find_product(product, today, meal_type_english):
             meal_ids[meal.mealName] = product_id
             meal_weights[meal.mealName] = int(meal.nutrition.weight)
             logging.info(f"Processed meal: {meal.mealName}")
@@ -257,30 +139,19 @@ async def process_menu_meals(menu: MenuResponse, fitatu: FitatuClient) -> dict:
     return {"meal_ids": meal_ids, "meal_weights": meal_weights}
 
 
-def determine_sync_exit_code(results: list[UserSyncResult]) -> int:
-    """Determine appropriate exit code based on synchronization results.
+def determine_sync_exit_code(results: List[UserSyncResult]) -> int:
+    """Determine appropriate exit code based on synchronization results."""
+    successful_syncs = sum(1 for r in results if r.status == SyncStatus.SUCCESS)
+    no_menu_users = sum(1 for r in results if r.status == SyncStatus.NO_MENU)
     
-    Args:
-        results: List of user sync results
-        
-    Returns:
-        Exit code (0=success, 1=partial failure, 2=total failure)
-    """
-    total_users = len(results)
-    successful_syncs = len([r for r in results if r.status == SyncStatus.SUCCESS])
-    no_menu_users = len([r for r in results if r.status == SyncStatus.NO_MENU])
-
-    # Consider "no menu" as acceptable, not a failure
+    # Consider "no menu" as acceptable
     acceptable_results = successful_syncs + no_menu_users
-
-    if acceptable_results == total_users:
-        # All users either synced successfully or had no menu (both acceptable)
+    
+    if acceptable_results == len(results):
         return EXIT_CODE_SUCCESS
     elif successful_syncs > 0:
-        # At least one user synced successfully, but some failed
         return EXIT_CODE_PARTIAL_FAILURE
     else:
-        # All users failed to sync (ignoring "no menu" cases)
         return EXIT_CODE_TOTAL_FAILURE
 
 
@@ -289,8 +160,7 @@ async def main():
     sites = SitesConfiguration.load_from_file("config/sites.yaml")
     users = UsersConfiguration.load_from_file("config/users.yaml")
 
-    today = get_current_date_iso()
-    logging.info(f"Starting Dietly sync for {today}")
+    logging.info(f"Starting Dietly sync for {get_current_date_iso()}")
 
     results = []
     for user in users.users:
@@ -299,65 +169,42 @@ async def main():
             result = await process_user_meal_sync(user, sites)
             results.append(result)
         except Exception as e:
-            # Ultimate fallback - should not happen with our improved error handling
             logging.error(f"Critical error processing {user.name}: {e}")
             results.append(UserSyncResult(user.name, SyncStatus.FAILED, f"Critical error: {str(e)[:100]}"))
 
-    # Summary logging
-    successful_syncs = len([r for r in results if r.status == SyncStatus.SUCCESS and "synced successfully" in r.message])
-    no_active_plan_users = len([r for r in results if r.status == SyncStatus.SUCCESS and NO_ACTIVE_PLAN_MSG in r.message])
-    no_menu_users = len([r for r in results if r.status == SyncStatus.NO_MENU])
-    failed_syncs = len([r for r in results if r.status == SyncStatus.FAILED])
-    total_users = len(results)
+    # Summary
+    successful_syncs = sum(1 for r in results if r.status == SyncStatus.SUCCESS and "synced successfully" in r.message)
+    no_active_plan_users = sum(1 for r in results if r.status == SyncStatus.SUCCESS and NO_ACTIVE_PLAN_MSG in r.message)
+    no_menu_users = sum(1 for r in results if r.status == SyncStatus.NO_MENU)
+    failed_syncs = sum(1 for r in results if r.status == SyncStatus.FAILED)
 
     logging.info("=== SYNC SUMMARY ===")
-    logging.info(f"Total users: {total_users}")
-    logging.info(f"Successful meal syncs: {successful_syncs}")
-    logging.info(f"No active meal plan: {no_active_plan_users}")
-    logging.info(f"No menu available: {no_menu_users}")
-    logging.info(f"Failed syncs: {failed_syncs}")
+    logging.info(f"Total users: {len(results)} | Successful: {successful_syncs} | No active plan: {no_active_plan_users} | No menu: {no_menu_users} | Failed: {failed_syncs}")
 
     # Detailed results
+    status_icons = {"success": "✅", "no_menu": "ℹ️", "failed": "❌"}
     for result in results:
-        if result.status == SyncStatus.SUCCESS and NO_ACTIVE_PLAN_MSG in result.message:
-            status_icon = "📅"  # Calendar icon for no active plan
-        else:
-            status_icon = {"success": "✅", "no_menu": "ℹ️", "failed": "❌"}[result.status.value]
-        logging.info(f"{status_icon} {result.user_name}: {result.message}")
+        icon = "📅" if result.status == SyncStatus.SUCCESS and NO_ACTIVE_PLAN_MSG in result.message else status_icons[result.status.value]
+        logging.info(f"{icon} {result.user_name}: {result.message}")
 
-    # Determine exit code and final status
+    # Exit with appropriate code
     exit_code = determine_sync_exit_code(results)
-
+    status_msgs = {
+        EXIT_CODE_SUCCESS: "🎉 All users processed successfully",
+        EXIT_CODE_PARTIAL_FAILURE: "⚠️ Partial success - some users failed to sync",
+        EXIT_CODE_TOTAL_FAILURE: "💥 All users failed to sync"
+    }
+    
     if exit_code == EXIT_CODE_SUCCESS:
-        logging.info("🎉 All users processed successfully")
+        logging.info(status_msgs[exit_code])
     elif exit_code == EXIT_CODE_PARTIAL_FAILURE:
-        logging.warning("⚠️ Partial success - some users failed to sync")
+        logging.warning(status_msgs[exit_code])
     else:
-        logging.error("💥 All users failed to sync")
+        logging.error(status_msgs[exit_code])
 
-    return sys.exit(exit_code)
+    sys.exit(exit_code)
 
-
-def _truncate_for_debug(data: dict, max_items: int = 3) -> dict:
-    """Truncate menu data for debug logging to avoid overwhelming logs."""
-    if not isinstance(data, dict):
-        return data
-    
-    truncated = {}
-    for key, value in list(data.items())[:max_items]:
-        if isinstance(value, list) and len(value) > 2:
-            truncated[key] = f"[{len(value)} items] " + str(value[:2]) + "..."
-        elif isinstance(value, dict):
-            truncated[key] = _truncate_for_debug(value, max_items=2)
-        else:
-            truncated[key] = value
-    
-    if len(data) > max_items:
-        truncated["..."] = f"and {len(data) - max_items} more keys"
-    
-    return truncated
 
 if __name__ == "__main__":
     import asyncio
-
     asyncio.run(main())

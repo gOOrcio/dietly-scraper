@@ -1,6 +1,6 @@
 import logging
 import uuid
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from src.clients.base_client import BaseAPIClient
 from src.models.add_product_model import NutritionProduct
@@ -9,6 +9,7 @@ from src.utils.constants import (
     FITATU_HEADERS_BASE, SEARCH_PAGE_LIMIT, DEFAULT_MEAL_WEIGHT,
     USER_ID_NOT_SET_MSG, LOG_FORMAT
 )
+from src.utils.decorators import require_user_id, log_api_call
 from src.utils.utils import (
     extract_user_id_from_jwt_token, get_current_timestamp_iso,
     safe_convert_to_int, build_api_url, build_query_url
@@ -101,7 +102,8 @@ class FitatuClient(BaseAPIClient):
         """Update or add headers for future requests."""
         self._headers.update(new_headers)
 
-    async def login(self) -> Optional[dict]:
+    @log_api_call("Login")
+    async def login(self) -> Optional[Dict[str, Any]]:
         """Login to Fitatu and extract user ID from JWT token.
         
         Returns:
@@ -129,7 +131,7 @@ class FitatuClient(BaseAPIClient):
         logging.info(f"Successfully logged in with user ID: {self.user_id}")
         return response
 
-    async def add_nutrition_product(self, product: NutritionProduct) -> Optional[dict]:
+    async def add_nutrition_product(self, product: NutritionProduct) -> Optional[Dict[str, Any]]:
         """Add a nutrition product using the Fitatu API.
         
         Args:
@@ -140,21 +142,9 @@ class FitatuClient(BaseAPIClient):
         """
         return await self.post(self.products_url, product.model_dump())
 
+    @require_user_id
     async def search_product_by_name(self, name: str, date: str, meal: str = "breakfast") -> Optional[str]:
-        """Search for a product by name and date in Fitatu.
-        
-        Args:
-            name: Product name to search for
-            date: Date for the search
-            meal: Meal type for the search (e.g., "breakfast", "dinner")
-            
-        Returns:
-            Product ID if found, None otherwise
-        """
-        if not self.user_id:
-            logging.error(USER_ID_NOT_SET_MSG)
-            return None
-
+        """Search for a product by name and date in Fitatu."""
         url = self._build_search_url(date, name, meal)
         response = await self.get(url)
 
@@ -162,8 +152,8 @@ class FitatuClient(BaseAPIClient):
             logging.warning(f"Search API returned no data for '{name}' - will create new product")
             return None
 
-        # Ensure response is a list of dicts
         try:
+            # Handle different response formats
             if isinstance(response, dict):
                 products = response.get("products") or response.get("data") or []
             elif isinstance(response, list):
@@ -172,25 +162,39 @@ class FitatuClient(BaseAPIClient):
                 logging.warning(f"Unexpected search response format for '{name}': {type(response)}")
                 return None
 
-            # Search for exact match
+            # Search for exact matches - prefer brand matches first
+            exact_matches = []
             for product in products:
                 if isinstance(product, dict):
                     product_name = product.get("name", "")
                     product_brand = product.get("brand", "")
                     product_id = product.get("foodId") or product.get("id")
                     
-                    if product_name == name and product_brand == self.brand and product_id:
-                        logging.info(f"Product '{name}' found with ID {product_id}")
-                        return str(product_id)
+                    if product_name == name and product_id:
+                        # Exact name match found
+                        if product_brand == self.brand:
+                            # Perfect match - same name and brand
+                            logging.info(f"Found exact match: '{name}' with brand '{self.brand}' (ID: {product_id})")
+                            return str(product_id)
+                        else:
+                            # Name match but different brand - save as potential fallback
+                            exact_matches.append((product_id, product_brand))
 
-            logging.info(f"No exact match found for product: '{name}' with brand: '{self.brand}'")
+            # If no perfect brand match, use the first exact name match
+            if exact_matches:
+                product_id, found_brand = exact_matches[0]
+                logging.info(f"Using name match: '{name}' with brand '{found_brand}' (ID: {product_id}) - no brand match found")
+                return str(product_id)
+
+            logging.info(f"No match found for product: '{name}' - will create new product")
             return None
 
         except Exception as e:
             logging.warning(f"Error processing search response for '{name}': {e}")
             return None
 
-    async def get_existing_diet_plan_for_date(self, date: str) -> dict:
+    @require_user_id
+    async def get_existing_diet_plan_for_date(self, date: str) -> Dict[str, Any]:
         """Retrieve existing diet plan for the given date.
         
         Args:
@@ -215,7 +219,9 @@ class FitatuClient(BaseAPIClient):
             for meal_key, meal_data in diet_plan.items()
         }
 
-    async def update_diet_plan_for_date(self, date: str, diet_plan: dict) -> bool:
+    @require_user_id
+    @log_api_call("Diet plan update")
+    async def update_diet_plan_for_date(self, date: str, diet_plan: Dict[str, Any]) -> bool:
         """Update the diet plan in Fitatu for a specific date.
         
         Args:
@@ -241,87 +247,108 @@ class FitatuClient(BaseAPIClient):
         return success
 
     async def create_or_find_product(self, product: NutritionProduct, date: str, meal: str = "breakfast") -> Optional[str]:
-        """Find an existing product or create a new product in Fitatu.
-        
-        Args:
-            product: Nutrition product to find or create
-            date: Date for the operation
-            meal: Meal type for the search (e.g., "breakfast", "dinner")
-            
-        Returns:
-            Product ID if successful, None otherwise
-        """
+        """Find an existing product or create a new product in Fitatu."""
+        # First try: Search API
         product_id = await self.search_product_by_name(product.name, date, meal)
         if product_id:
             return product_id
 
+        # Second try: Check existing diet plan for product with same name
+        product_id = await self._find_product_in_existing_plan(product.name, date)
+        if product_id:
+            logging.info(f"Found product '{product.name}' in existing diet plan with ID {product_id}")
+            return product_id
+
+        # Last resort: Create new product
+        logging.info(f"Creating new product: '{product.name}'")
         response = await self.add_nutrition_product(product)
         if isinstance(response, dict):
             return response.get("id")
         return None
 
-    async def publish_diet_plan(self, date: str, meal_ids: dict, meal_weights: dict, meal_mapping: dict) -> bool:
-        """Publish the complete diet plan to Fitatu with proper handling of existing meals.
-        
-        Args:
-            date: Target date
-            meal_ids: Dictionary mapping meal names to product IDs
-            meal_weights: Dictionary mapping meal names to weights
-            meal_mapping: Dictionary mapping meal names to Fitatu meal types
+    async def _find_product_in_existing_plan(self, product_name: str, date: str) -> Optional[str]:
+        """Find a product in the existing diet plan by name, preferring the most recently added."""
+        try:
+            existing_plan = await self.get_existing_diet_plan_for_date(date)
             
-        Returns:
-            True if successful, False otherwise
-        """
+            # Collect all matching products with their timestamps
+            matching_products = []
+            
+            for meal_key, items in existing_plan.items():
+                for item in items:
+                    if (item.get("brand") == self.brand and 
+                        item.get("name") == product_name and 
+                        not item.get("deletedAt")):
+                        
+                        product_id = item.get("productId")
+                        updated_at = item.get("updatedAt", "")
+                        
+                        if product_id:
+                            matching_products.append((product_id, updated_at, meal_key))
+            
+            if matching_products:
+                # Sort by updatedAt timestamp (most recent first)
+                matching_products.sort(key=lambda x: x[1], reverse=True)
+                most_recent_id = matching_products[0][0]
+                
+                logging.info(f"Found {len(matching_products)} existing products for '{product_name}', using most recent: {most_recent_id}")
+                return str(most_recent_id)
+            
+            return None
+        except Exception as e:
+            logging.warning(f"Error searching existing diet plan for '{product_name}': {e}")
+            return None
+
+    async def publish_diet_plan(self, date: str, meal_ids: Dict[str, str], 
+                              meal_weights: Dict[str, int], meal_mapping: Dict[str, str]) -> bool:
+        """Publish the complete diet plan to Fitatu - only add new meals that don't already exist."""
         existing_plan = await self.get_existing_diet_plan_for_date(date)
         diet_plan = {date: {"dietPlan": {}}}
-
-        # Get all existing product IDs across all meal types for this brand
-        all_existing_product_ids = set()
+        
+        # Get all current product IDs from today's menu
+        current_product_ids = set(meal_ids.values())
+        logging.info(f"Today's menu contains {len(current_product_ids)} products: {current_product_ids}")
+        
+        # Find which products already exist in the diet plan
+        existing_product_ids = set()
         for meal_key, items in existing_plan.items():
             for item in items:
-                if item.get("brand") == self.brand:
-                    all_existing_product_ids.add(item.get("productId"))
+                if item.get("brand") == self.brand and not item.get("deletedAt"):
+                    product_id = item.get("productId")
+                    if product_id:
+                        existing_product_ids.add(str(product_id))  # Convert to string for comparison
 
-        # Mark outdated meals for deletion (meals that exist but are not in today's menu)
+        logging.info(f"Existing diet plan contains {len(existing_product_ids)} products: {existing_product_ids}")
+        
+        # Copy existing diet plan structure without modifications
         for meal_key, items in existing_plan.items():
-            updated_items = []
-            for item in items:
-                # Only process items from our brand
-                if item.get("brand") == self.brand:
-                    # If this product is not in today's menu, mark it for deletion
-                    if item["productId"] not in meal_ids.values():
-                        item["deletedAt"] = get_current_timestamp_iso()
-                        logging.info(f"Marking '{item.get('name', 'Unknown')}' as deleted (no longer in menu)")
-                        updated_items.append(item)
-                    # If it's in today's menu, keep it but don't re-add it
-                    else:
-                        logging.info(f"Keeping existing meal '{item.get('name', 'Unknown')}' - already in diet plan")
-                        updated_items.append(item)
-                else:
-                    # Keep items from other brands unchanged
-                    updated_items.append(item)
-            
-            if updated_items:
-                diet_plan[date]["dietPlan"][meal_key] = {"items": updated_items}
+            if items:  # Only copy if there are items
+                diet_plan[date]["dietPlan"][meal_key] = {"items": items}
 
-        # Add new meals (only if not already present)
+        # Add only NEW meals (not already in diet plan)
+        new_meals_added = 0
         for meal_name, meal_id in meal_ids.items():
-            if meal_id not in all_existing_product_ids:
+            if str(meal_id) not in existing_product_ids:  # Ensure string comparison
                 self._add_meal_to_diet_plan(
-                    diet_plan[date]["dietPlan"],
-                    meal_name,
-                    meal_id,
+                    diet_plan[date]["dietPlan"], meal_name, meal_id,
                     meal_weights.get(meal_name, DEFAULT_MEAL_WEIGHT),
-                    existing_plan,
-                    meal_mapping
+                    existing_plan, meal_mapping
                 )
+                new_meals_added += 1
             else:
-                logging.info(f"Skipping '{meal_name}' - product {meal_id} already exists in diet plan")
-
-        return await self.update_diet_plan_for_date(date, diet_plan)
+                logging.info(f"Skipping '{meal_name}' (ID: {meal_id}) - already exists in diet plan")
+        
+        if new_meals_added > 0:
+            logging.info(f"Adding {new_meals_added} new meals to diet plan")
+            return await self.update_diet_plan_for_date(date, diet_plan)
+        else:
+            logging.info("No new meals to add - diet plan is already up to date")
+            return True  # Consider this a success since nothing needed to be done
 
     @staticmethod
-    def _add_meal_to_diet_plan(diet_plan: dict, meal_name: str, meal_id: str, meal_weight: int, existing_plan: dict, meal_mapping: dict) -> None:
+    def _add_meal_to_diet_plan(diet_plan: Dict[str, Any], meal_name: str, meal_id: str, 
+                             meal_weight: int, existing_plan: Dict[str, Any], 
+                             meal_mapping: Dict[str, str]) -> None:
         """Add a meal to the diet plan while avoiding duplicates.
         
         Args:
@@ -332,19 +359,19 @@ class FitatuClient(BaseAPIClient):
             existing_plan: Existing diet plan data
             meal_mapping: Mapping from meal names to meal types
         """
-        mapped_key = meal_mapping.get(meal_name)
-        if not mapped_key:
+        if not (mapped_key := meal_mapping.get(meal_name)):
             logging.info(f"Skipping '{meal_name}' - not supported meal by mapping configuration")
             return
 
-        # Double-check that this product ID doesn't already exist in this meal category
+        # Check for duplicates in this meal category
         if mapped_key in existing_plan:
-            existing_product_ids = {item.get("productId") for item in existing_plan[mapped_key] if not item.get("deletedAt")}
+            existing_product_ids = {item.get("productId") for item in existing_plan[mapped_key] 
+                                  if not item.get("deletedAt")}
             if meal_id in existing_product_ids:
                 logging.info(f"Skipping '{meal_name}' - product {meal_id} already exists in {mapped_key}")
                 return
 
-        # Initialize meal category if it doesn't exist
+        # Initialize meal category if needed
         if mapped_key not in diet_plan:
             diet_plan[mapped_key] = {"items": []}
 
