@@ -241,7 +241,11 @@ async def process_menu_meals(menu: MenuResponse, fitatu: FitatuClient) -> dict:
             continue
 
         product = convert_menu_meal_to_nutrition_product(meal, fitatu.brand)
-        product_id = await fitatu.create_or_find_product(product, today)
+        
+        # Get the English meal type for search API
+        meal_type_english = MEAL_MAPPING.get(meal.mealName, "breakfast")
+        
+        product_id = await fitatu.create_or_find_product(product, today, meal_type_english)
 
         if product_id:
             meal_ids[meal.mealName] = product_id

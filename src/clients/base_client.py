@@ -83,8 +83,13 @@ class BaseAPIClient(ABC):
             logging.warning("Empty response content")
             return None
             
-        # Check content type
+        # Check content type and encoding
         content_type = response.headers.get('content-type', '').lower()
+        content_encoding = response.headers.get('content-encoding', '')
+        
+        # Debug logging for compression issues
+        logging.debug(f"Response headers - Content-Type: {content_type}, Content-Encoding: {content_encoding}")
+        logging.debug(f"Response content length: {len(response.content)} bytes")
         
         # If it's not JSON content, log and return None
         if content_type and 'json' not in content_type:
@@ -95,6 +100,10 @@ class BaseAPIClient(ABC):
             return response.json()
         except UnicodeDecodeError as e:
             logging.warning(f"UTF-8 decoding failed: {e}. Trying alternative encodings...")
+            
+            # If there's compression, log it
+            if content_encoding:
+                logging.error(f"Response has compression '{content_encoding}' but failed to decode - httpx may not have decompressed properly")
             
             # Try common alternative encodings
             for encoding in ['latin-1', 'windows-1252', 'iso-8859-1']:

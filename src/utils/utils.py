@@ -157,8 +157,17 @@ def build_query_url(base_url: str, **query_params: Any) -> str:
     if not query_params:
         return base_url
 
-    # URL encode query parameters
-    query_string = "&".join(f"{key}={quote(str(value))}" for key, value in query_params.items())
+    query_parts = []
+    for key, value in query_params.items():
+        if isinstance(value, list):
+            # Handle array parameters like accessType[]
+            for item in value:
+                query_parts.append(f"{key}[]={quote(str(item))}")
+        else:
+            # Regular parameters
+            query_parts.append(f"{key}={quote(str(value))}")
+    
+    query_string = "&".join(query_parts)
     separator = "&" if "?" in base_url else "?"
     return f"{base_url}{separator}{query_string}"
 

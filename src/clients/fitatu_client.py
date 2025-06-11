@@ -43,21 +43,32 @@ class FitatuClient(BaseAPIClient):
         })
         self.update_headers(headers)
 
-    def _build_search_url(self, user_id: str, date: str, phrase: str, page: int = 1, limit: int = SEARCH_PAGE_LIMIT) -> str:
-        """Build search URL with query parameters.
+    def _build_search_url(self, date: str, phrase: str, meal: str = "breakfast", page: int = 1, limit: int = 40) -> str:
+        """Build search URL with correct endpoint and query parameters.
         
         Args:
-            user_id: User ID for the search
             date: Date for the search
             phrase: Search phrase
+            meal: Meal type (default: breakfast)
             page: Page number (default: 1)
-            limit: Results per page limit
+            limit: Results per page limit (default: 40)
             
         Returns:
             Complete search URL with query parameters
         """
-        base_url = build_api_url(self.search_base_url, user_id)
-        return build_query_url(base_url, date=date, phrase=phrase, page=page, limit=limit)
+        # Use the correct new search endpoint
+        base_url = build_api_url(self.api_base, "search", "new", "food")
+        return build_query_url(
+            base_url,
+            date=date,
+            meal=meal,
+            phrase=phrase,
+            hasFilters="false",
+            page=page,
+            locale="pl_PL",
+            limit=limit,
+            accessType=["FREE", "PREMIUM"]
+        )
 
     def _build_diet_plan_url(self, user_id: str) -> str:
         """Build diet plan URL for a specific user.
@@ -129,12 +140,13 @@ class FitatuClient(BaseAPIClient):
         """
         return await self.post(self.products_url, product.model_dump())
 
-    async def search_product_by_name(self, name: str, date: str) -> Optional[str]:
+    async def search_product_by_name(self, name: str, date: str, meal: str = "breakfast") -> Optional[str]:
         """Search for a product by name and date in Fitatu.
         
         Args:
             name: Product name to search for
             date: Date for the search
+            meal: Meal type for the search (e.g., "breakfast", "dinner")
             
         Returns:
             Product ID if found, None otherwise
@@ -143,7 +155,7 @@ class FitatuClient(BaseAPIClient):
             logging.error(USER_ID_NOT_SET_MSG)
             return None
 
-        url = self._build_search_url(self.user_id, date, name)
+        url = self._build_search_url(date, name, meal)
         response = await self.get(url)
 
         if not response:
@@ -228,17 +240,18 @@ class FitatuClient(BaseAPIClient):
 
         return success
 
-    async def create_or_find_product(self, product: NutritionProduct, date: str) -> Optional[str]:
+    async def create_or_find_product(self, product: NutritionProduct, date: str, meal: str = "breakfast") -> Optional[str]:
         """Find an existing product or create a new product in Fitatu.
         
         Args:
             product: Nutrition product to find or create
             date: Date for the operation
+            meal: Meal type for the search (e.g., "breakfast", "dinner")
             
         Returns:
             Product ID if successful, None otherwise
         """
-        product_id = await self.search_product_by_name(product.name, date)
+        product_id = await self.search_product_by_name(product.name, date, meal)
         if product_id:
             return product_id
 
