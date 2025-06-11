@@ -27,11 +27,16 @@ class BaseAPIClient(ABC):
         self._headers.update(new_headers)
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create the httpx client with session persistence."""
+        """Get or create the httpx client with session persistence and proper compression handling."""
         if self._client is None:
             self._client = httpx.AsyncClient(
                 timeout=DEFAULT_REQUEST_TIMEOUT,
-                follow_redirects=True
+                follow_redirects=True,
+                # Ensure compression is handled properly
+                headers={
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Accept": "application/json, */*"
+                }
             )
         return self._client
 
@@ -65,7 +70,7 @@ class BaseAPIClient(ABC):
         return False
 
     def _decode_response_safely(self, response: httpx.Response) -> Optional[Dict[str, Any]]:
-        """Safely decode response with fallback encoding handling.
+        """Safely decode response with fallback encoding handling and compression support.
         
         Args:
             response: HTTP response object
@@ -73,8 +78,20 @@ class BaseAPIClient(ABC):
         Returns:
             Decoded JSON data or None if decoding fails
         """
+        # Check if response is empty
+        if not response.content:
+            logging.warning("Empty response content")
+            return None
+            
+        # Check content type
+        content_type = response.headers.get('content-type', '').lower()
+        
+        # If it's not JSON content, log and return None
+        if content_type and 'json' not in content_type:
+            logging.warning(f"Non-JSON content type: {content_type}")
+        
         try:
-            # First try the standard JSON parsing (UTF-8)
+            # First try the standard JSON parsing (UTF-8) - httpx handles compression automatically
             return response.json()
         except UnicodeDecodeError as e:
             logging.warning(f"UTF-8 decoding failed: {e}. Trying alternative encodings...")
@@ -93,13 +110,22 @@ class BaseAPIClient(ABC):
                 except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
                     continue
             
-            # If all encodings fail, log and return None
-            logging.error(f"Failed to decode response with any encoding. Response content preview: {response.content[:100]}")
+            # If all encodings fail, check if it might be compressed data that wasn't decompressed
+            content_preview = response.content[:20]
+            if content_preview.startswith(b'\x1f\x8b') or content_preview.startswith(b'PK'):
+                logging.error("Response appears to be compressed but wasn't decompressed properly")
+            elif content_preview.startswith(b'!'):
+                logging.error("Response appears to be in unknown binary format")
+            
+            logging.error(f"Failed to decode response with any encoding. Content type: {content_type}")
+            logging.error(f"Response content preview: {response.content[:100]}")
             return None
             
-        except (ValueError, TypeError) as e:
+        except (ValueError, TypeError, json.JSONDecodeError) as e:
             # JSON parsing errors or other issues
-            logging.error(f"JSON parsing failed: {e}. Response content preview: {response.content[:100] if response.content else 'empty'}")
+            logging.error(f"JSON parsing failed: {e}")
+            logging.error(f"Content type: {content_type}")
+            logging.error(f"Response content preview: {response.content[:100] if response.content else 'empty'}")
             return None
 
     async def _make_request_with_retry(

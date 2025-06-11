@@ -147,22 +147,36 @@ class FitatuClient(BaseAPIClient):
         response = await self.get(url)
 
         if not response:
+            logging.warning(f"Search API returned no data for '{name}' - will create new product")
             return None
 
         # Ensure response is a list of dicts
-        if isinstance(response, dict):
-            products = response.get("products") or []
-        else:
-            products = response
+        try:
+            if isinstance(response, dict):
+                products = response.get("products") or response.get("data") or []
+            elif isinstance(response, list):
+                products = response
+            else:
+                logging.warning(f"Unexpected search response format for '{name}': {type(response)}")
+                return None
 
-        for product in products:
-            if isinstance(product, dict) and product.get("name") == name and product.get("brand") == self.brand:
-                product_id = product.get("foodId")
-                logging.info(f"Product '{name}' found with ID {product_id}")
-                return product_id
+            # Search for exact match
+            for product in products:
+                if isinstance(product, dict):
+                    product_name = product.get("name", "")
+                    product_brand = product.get("brand", "")
+                    product_id = product.get("foodId") or product.get("id")
+                    
+                    if product_name == name and product_brand == self.brand and product_id:
+                        logging.info(f"Product '{name}' found with ID {product_id}")
+                        return str(product_id)
 
-        logging.info(f"No exact match found for product: {name}")
-        return None
+            logging.info(f"No exact match found for product: '{name}' with brand: '{self.brand}'")
+            return None
+
+        except Exception as e:
+            logging.warning(f"Error processing search response for '{name}': {e}")
+            return None
 
     async def get_existing_diet_plan_for_date(self, date: str) -> dict:
         """Retrieve existing diet plan for the given date.
