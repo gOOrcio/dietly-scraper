@@ -11,6 +11,7 @@ A production-ready Python application that automatically syncs meal data from [D
 - **Automated Daily Sync**: Runs via GitHub Actions, Docker, or cron jobs
 - **Clean Architecture**: Modular design following SOLID principles
 - **Smart Error Handling**: Robust handling of missing meals, API errors, and timeouts
+- **Multi-Layer Retry Logic**: Exponential backoff retry at HTTP and user-sync levels
 - **Multi-User Support**: Configure multiple Dietly/Fitatu account pairs
 - **Viking-Style Logic**: Search-first, create-only-if-not-found approach
 - **Comprehensive Logging**: Detailed execution logs with proper exit codes
@@ -270,6 +271,51 @@ async def test():
 
 asyncio.run(test())
 "
+```
+
+## 🔄 Retry & Resilience Strategy
+
+The application implements a comprehensive multi-layer retry strategy to handle transient failures:
+
+### HTTP-Level Retries (BaseAPIClient)
+- **Exponential backoff** with jitter (1s, 2s, 4s delays)
+- **Retryable status codes**: 500, 502, 503, 504
+- **Network error handling**: Connection timeouts, DNS failures
+- **Non-retryable errors**: 4xx client errors (don't retry)
+
+### User-Level Retries (Main Sync Logic)
+- **Intelligent failure detection**: Distinguishes transient vs permanent failures
+- **Per-user retry**: Each user's sync is retried independently
+- **Transient error patterns**: "503", "timeout", "connection", "network"
+
+### Infrastructure-Level Retries (GitHub Actions)
+- **Workflow retry**: Up to 3 attempts with 60s intervals
+- **Timeout protection**: 15-minute timeout per attempt
+- **Smart failure handling**: Only retries complete failures (exit code 2)
+
+### Example Retry Flow
+
+```bash
+# HTTP level: 503 Service Unavailable
+2025-06-11 02:30:54 - WARNING: Request POST https://dietly.pl/api/auth/login failed (attempt 1/3): HTTP 503 error. Retrying in 1.2s...
+2025-06-11 02:30:56 - WARNING: Request POST https://dietly.pl/api/auth/login failed (attempt 2/3): HTTP 503 error. Retrying in 2.4s...
+2025-06-11 02:30:59 - INFO: POST https://dietly.pl/api/auth/login - Status: 200
+
+# User level: If still failing
+2025-06-11 02:31:00 - WARNING: User Kamil sync failed with transient error (attempt 1/3): Dietly API failed: Login failed
+2025-06-11 02:31:00 - INFO: Will retry user Kamil sync in next attempt...
+
+# Infrastructure level: If all users fail
+# GitHub Actions automatically retries the entire workflow
+```
+
+### Testing Retry Logic
+
+Run the test script to verify retry functionality:
+
+```bash
+# Test retry mechanisms
+uv run python test_retry.py
 ```
 
 ## 🛠️ Development

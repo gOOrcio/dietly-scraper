@@ -9,8 +9,8 @@ from src.clients.fitatu_client import FitatuClient
 from src.models.add_product_model import convert_menu_meal_to_nutrition_product
 from src.models.config_model import SitesConfiguration, UsersConfiguration
 from src.models.menu_response_model import MenuResponse
-from src.utils.constants import MEAL_MAPPING, LOG_FORMAT, EXIT_CODE_SUCCESS, EXIT_CODE_PARTIAL_FAILURE, EXIT_CODE_TOTAL_FAILURE, NO_MENU_MEALS_MSG, NO_ACTIVE_PLAN_MSG
-from src.utils.utils import get_current_date_iso, is_valid_api_response
+from src.utils.constants import MEAL_MAPPING, LOG_FORMAT, EXIT_CODE_SUCCESS, EXIT_CODE_PARTIAL_FAILURE, EXIT_CODE_TOTAL_FAILURE, NO_MENU_MEALS_MSG, NO_ACTIVE_PLAN_MSG, RETRY_MAX_ATTEMPTS
+from src.utils.utils import get_current_date_iso, is_valid_api_response, retry_async
 
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 
@@ -29,8 +29,75 @@ class UserSyncResult(NamedTuple):
     message: str
 
 
-async def process_user_meal_sync(user, sites) -> UserSyncResult:
-    """Process meal synchronization for a single user.
+def is_transient_error(error_msg: str) -> bool:
+    """Check if an error message indicates a transient failure that should be retried.
+    
+    Args:
+        error_msg: Error message to check
+        
+    Returns:
+        True if the error appears to be transient
+    """
+    transient_indicators = [
+        "503", "502", "500", "504",  # Server errors
+        "connection", "timeout", "network",  # Network issues
+        "service unavailable", "bad gateway",
+        "gateway timeout", "internal server error"
+    ]
+    
+    error_lower = error_msg.lower()
+    return any(indicator in error_lower for indicator in transient_indicators)
+
+
+async def process_user_meal_sync_with_retry(user, sites) -> UserSyncResult:
+    """Process meal synchronization for a single user with retry logic.
+    
+    Args:
+        user: User configuration
+        sites: Sites configuration
+        
+    Returns:
+        UserSyncResult with sync status and details
+    """
+    async def sync_attempt():
+        return await process_user_meal_sync_single_attempt(user, sites)
+    
+    # Define what errors should trigger a user-level retry
+    def should_retry_user_sync(result: UserSyncResult) -> bool:
+        if result.status != SyncStatus.FAILED:
+            return False
+        return is_transient_error(result.message)
+    
+    # Try the sync process with retries for transient failures
+    for attempt in range(RETRY_MAX_ATTEMPTS):
+        try:
+            result = await sync_attempt()
+            
+            # If it's not a failure, or not a transient failure, return immediately
+            if not should_retry_user_sync(result):
+                return result
+            
+            # If it's the last attempt, return the result regardless
+            if attempt == RETRY_MAX_ATTEMPTS - 1:
+                logging.warning(f"User-level retry exhausted for {user.name} after {RETRY_MAX_ATTEMPTS} attempts")
+                return result
+            
+            # Log the retry and continue
+            logging.warning(f"User {user.name} sync failed with transient error (attempt {attempt + 1}/{RETRY_MAX_ATTEMPTS}): {result.message}")
+            logging.info(f"Will retry user {user.name} sync in next attempt...")
+            
+        except Exception as e:
+            # Handle unexpected exceptions at user level
+            if attempt == RETRY_MAX_ATTEMPTS - 1:
+                logging.error(f"Unexpected error in user sync retry for {user.name}: {e}")
+                return UserSyncResult(user.name, SyncStatus.FAILED, f"Unexpected error: {str(e)[:100]}")
+    
+    # This should never be reached
+    return UserSyncResult(user.name, SyncStatus.FAILED, "User-level retry logic error")
+
+
+async def process_user_meal_sync_single_attempt(user, sites) -> UserSyncResult:
+    """Process meal synchronization for a single user - single attempt without retry.
     
     Args:
         user: User configuration
@@ -93,6 +160,15 @@ async def process_user_meal_sync(user, sites) -> UserSyncResult:
             return UserSyncResult(user.name, SyncStatus.NO_MENU, f"HTTP timeout (likely no menu): {error_msg[:100]}")
         else:
             return UserSyncResult(user.name, SyncStatus.FAILED, f"Unexpected error: {error_msg[:100]}")
+
+
+# Keep the original function name for backward compatibility
+async def process_user_meal_sync(user, sites) -> UserSyncResult:
+    """Process meal synchronization for a single user.
+    
+    This is the main entry point that includes user-level retry logic.
+    """
+    return await process_user_meal_sync_with_retry(user, sites)
 
 
 async def sync_menu_to_fitatu(menu: MenuResponse, company_name: str, user, sites) -> bool:

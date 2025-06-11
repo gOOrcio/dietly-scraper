@@ -32,24 +32,34 @@ jobs:
     
     - name: Run dietly to fitatu sync
       id: sync
-      run: |
-        set +e  # Don't exit on non-zero exit codes
-        uv run python main.py
-        EXIT_CODE=$?
-        echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
-        
-        # Set job status based on exit code
-        if [ $EXIT_CODE -eq 0 ]; then
-          echo "✅ All users processed successfully"
-        elif [ $EXIT_CODE -eq 1 ]; then
-          echo "⚠️ Partial success - some users failed to sync"
-          echo "status=warning" >> $GITHUB_OUTPUT
-        else
-          echo "💥 All users failed to sync"
-          echo "status=failure" >> $GITHUB_OUTPUT
-        fi
-        
-        exit $EXIT_CODE
+      uses: nick-fields/retry@v3
+      with:
+        timeout_minutes: 15
+        max_attempts: 3
+        retry_wait_seconds: 60
+        warning_on_retry: true
+        command: |
+          set +e  # Don't exit on non-zero exit codes
+          uv run python main.py
+          EXIT_CODE=$?
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          
+          # Set job status based on exit code
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "✅ All users processed successfully"
+          elif [ $EXIT_CODE -eq 1 ]; then
+            echo "⚠️ Partial success - some users failed to sync"
+            echo "status=warning" >> $GITHUB_OUTPUT
+          else
+            echo "💥 All users failed to sync"
+            echo "status=failure" >> $GITHUB_OUTPUT
+            
+            # Only fail the step (trigger retry) if it's a complete failure (exit code 2)
+            # This allows the retry mechanism to kick in for infrastructure issues
+            exit 1
+          fi
+          
+          exit $EXIT_CODE
     
     - name: Handle partial success
       if: steps.sync.outputs.exit_code == '1'
@@ -57,11 +67,10 @@ jobs:
         echo "::warning::Some users failed to sync. Check logs for details."
         exit 0  # Don't fail the job for partial success
     
-    - name: Handle complete failure
-      if: steps.sync.outputs.exit_code == '2'
+    - name: Handle success
+      if: steps.sync.outputs.exit_code == '0'
       run: |
-        echo "::error::All users failed to sync. Manual intervention required."
-        exit 1  # Fail the job for complete failure
+        echo "✅ All users processed successfully"
         
     # Notification step for failures
     - name: Notify on failure

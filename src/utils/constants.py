@@ -88,3 +88,10 @@ LOGIN_FAILED_MSG = "Login failed with status {status}"
 API_RESPONSE_NOT_CAPTURED_MSG = "API response not captured within {timeout} seconds."
 NO_MENU_MEALS_MSG = "No menu meals found for the given date."
 NO_ACTIVE_PLAN_MSG = "No active meal plan found for today."
+
+# Retry configuration
+RETRY_MAX_ATTEMPTS = 3
+RETRY_BASE_DELAY = 1.0  # seconds
+RETRY_MAX_DELAY = 30.0  # seconds
+RETRY_BACKOFF_MULTIPLIER = 2.0
+RETRYABLE_STATUS_CODES = {500, 502, 503, 504}
