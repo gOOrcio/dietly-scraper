@@ -164,6 +164,8 @@ class FitatuClient(BaseAPIClient):
 
             # Search for exact matches - prefer brand matches first
             exact_matches = []
+            no_brand_matches = []
+            
             for product in products:
                 if isinstance(product, dict):
                     product_name = product.get("name", "")
@@ -176,15 +178,25 @@ class FitatuClient(BaseAPIClient):
                             # Perfect match - same name and brand
                             logging.info(f"Found exact match: '{name}' with brand '{self.brand}' (ID: {product_id})")
                             return str(product_id)
+                        elif not product_brand or product_brand.strip() == "":
+                            # Name match but no brand - save for potential fallback but prefer creating new
+                            no_brand_matches.append((product_id, product_brand))
+                            logging.warning(f"Found product '{name}' with NO BRAND (ID: {product_id}) - will create new product with brand '{self.brand}' instead")
                         else:
                             # Name match but different brand - save as potential fallback
                             exact_matches.append((product_id, product_brand))
 
-            # If no perfect brand match, use the first exact name match
+            # If no perfect brand match, prefer creating new product over using one without brand
             if exact_matches:
                 product_id, found_brand = exact_matches[0]
-                logging.info(f"Using name match: '{name}' with brand '{found_brand}' (ID: {product_id}) - no brand match found")
+                logging.info(f"Using name match: '{name}' with brand '{found_brand}' (ID: {product_id}) - no exact brand match found")
                 return str(product_id)
+            
+            # If we have no brand matches, log and create new product instead
+            if no_brand_matches:
+                product_id, found_brand = no_brand_matches[0]
+                logging.warning(f"Found {len(no_brand_matches)} product(s) without brand for '{name}' (ID: {product_id}) - creating new product with brand '{self.brand}' instead")
+                return None
 
             logging.info(f"No match found for product: '{name}' - will create new product")
             return None
@@ -236,13 +248,21 @@ class FitatuClient(BaseAPIClient):
             return False
 
         url = self._build_diet_plan_url(self.user_id)
+        
+        # Log the diet plan structure for debugging
+        logging.debug(f"Updating diet plan for {date} with {len(diet_plan.get(date, {}).get('dietPlan', {}))} meal categories")
+        for meal_key, meal_data in diet_plan.get(date, {}).get('dietPlan', {}).items():
+            item_count = len(meal_data.get('items', []))
+            logging.debug(f"  {meal_key}: {item_count} items")
+        
         response = await self.post(url, diet_plan)
 
         success = response is not None
         if success:
             logging.info(f"Fitatu Diet Plan updated for {date}")
+            logging.debug(f"API response: {response}")
         else:
-            logging.error(f"Failed to update diet plan for {date}")
+            logging.error(f"Failed to update diet plan for {date} - no response from API")
 
         return success
 
@@ -251,6 +271,7 @@ class FitatuClient(BaseAPIClient):
         # First try: Search API
         product_id = await self.search_product_by_name(product.name, date, meal)
         if product_id:
+            logging.info(f"Using existing product '{product.name}' with ID {product_id}")
             return product_id
 
         # Second try: Check existing diet plan for product with same name
@@ -260,11 +281,16 @@ class FitatuClient(BaseAPIClient):
             return product_id
 
         # Last resort: Create new product
-        logging.info(f"Creating new product: '{product.name}'")
+        logging.info(f"Creating new product: '{product.name}' with brand '{product.brand}'")
         response = await self.add_nutrition_product(product)
         if isinstance(response, dict):
-            return response.get("id")
-        return None
+            new_product_id = response.get("id")
+            if new_product_id:
+                logging.debug(f"Successfully created new product '{product.name}' with ID {new_product_id}")
+            return new_product_id
+        else:
+            logging.error(f"Failed to create new product '{product.name}' - invalid response format")
+            return None
 
     async def _find_product_in_existing_plan(self, product_name: str, date: str) -> Optional[str]:
         """Find a product in the existing diet plan by name, preferring the most recently added."""
@@ -291,7 +317,7 @@ class FitatuClient(BaseAPIClient):
                 matching_products.sort(key=lambda x: x[1], reverse=True)
                 most_recent_id = matching_products[0][0]
                 
-                logging.info(f"Found {len(matching_products)} existing products for '{product_name}', using most recent: {most_recent_id}")
+                logging.debug(f"Found {len(matching_products)} existing products for '{product_name}', using most recent: {most_recent_id}")
                 return str(most_recent_id)
             
             return None
@@ -307,7 +333,12 @@ class FitatuClient(BaseAPIClient):
         
         # Get all current product IDs from today's menu
         current_product_ids = set(meal_ids.values())
-        logging.info(f"Today's menu contains {len(current_product_ids)} products: {current_product_ids}")
+        logging.info(f"Today's menu contains {len(current_product_ids)} products")
+        logging.debug(f"Product IDs: {current_product_ids}")
+        
+        # Log each product ID for debugging
+        for meal_name, product_id in meal_ids.items():
+            logging.debug(f"Product mapping: '{meal_name}' -> ID {product_id}")
         
         # Find which products already exist in the diet plan
         existing_product_ids = set()
@@ -318,7 +349,8 @@ class FitatuClient(BaseAPIClient):
                     if product_id:
                         existing_product_ids.add(str(product_id))  # Convert to string for comparison
 
-        logging.info(f"Existing diet plan contains {len(existing_product_ids)} products: {existing_product_ids}")
+        logging.info(f"Existing diet plan contains {len(existing_product_ids)} products")
+        logging.debug(f"Existing product IDs: {existing_product_ids}")
         
         # Copy existing diet plan structure without modifications
         for meal_key, items in existing_plan.items():
@@ -329,6 +361,13 @@ class FitatuClient(BaseAPIClient):
         new_meals_added = 0
         for meal_name, meal_id in meal_ids.items():
             if str(meal_id) not in existing_product_ids:  # Ensure string comparison
+                logging.debug(f"Adding new meal '{meal_name}' with product ID {meal_id} to diet plan")
+                
+                # Validate that the product ID looks reasonable (not empty, not None)
+                if not meal_id or str(meal_id).strip() == "":
+                    logging.error(f"Skipping '{meal_name}' - invalid product ID: {meal_id}")
+                    continue
+                
                 self._add_meal_to_diet_plan(
                     diet_plan[date]["dietPlan"], meal_name, meal_id,
                     meal_weights.get(meal_name, DEFAULT_MEAL_WEIGHT),
@@ -336,7 +375,7 @@ class FitatuClient(BaseAPIClient):
                 )
                 new_meals_added += 1
             else:
-                logging.info(f"Skipping '{meal_name}' (ID: {meal_id}) - already exists in diet plan")
+                logging.debug(f"Skipping '{meal_name}' (ID: {meal_id}) - already exists in diet plan")
         
         if new_meals_added > 0:
             logging.info(f"Adding {new_meals_added} new meals to diet plan")
@@ -345,8 +384,7 @@ class FitatuClient(BaseAPIClient):
             logging.info("No new meals to add - diet plan is already up to date")
             return True  # Consider this a success since nothing needed to be done
 
-    @staticmethod
-    def _add_meal_to_diet_plan(diet_plan: Dict[str, Any], meal_name: str, meal_id: str, 
+    def _add_meal_to_diet_plan(self, diet_plan: Dict[str, Any], meal_name: str, meal_id: str, 
                              meal_weight: int, existing_plan: Dict[str, Any], 
                              meal_mapping: Dict[str, str]) -> None:
         """Add a meal to the diet plan while avoiding duplicates.
@@ -375,13 +413,17 @@ class FitatuClient(BaseAPIClient):
         if mapped_key not in diet_plan:
             diet_plan[mapped_key] = {"items": []}
 
-        diet_plan[mapped_key]["items"].append({
+        # Create the meal item with proper brand information
+        meal_item = {
             "planDayDietItemId": str(uuid.uuid1()),
             "foodType": "PRODUCT",
             "measureId": 1,
             "measureQuantity": safe_convert_to_int(meal_weight, DEFAULT_MEAL_WEIGHT),
             "productId": meal_id,
             "source": "API",
-            "updatedAt": get_current_timestamp_iso()
-        })
-        logging.info(f"Added '{meal_name}' with product ID {meal_id} to diet plan ({mapped_key})")
+            "updatedAt": get_current_timestamp_iso(),
+            "brand": self.brand  # Add brand information to ensure proper product identification
+        }
+        
+        diet_plan[mapped_key]["items"].append(meal_item)
+        logging.info(f"Added '{meal_name}' with product ID {meal_id} and brand '{self.brand}' to diet plan ({mapped_key})")
