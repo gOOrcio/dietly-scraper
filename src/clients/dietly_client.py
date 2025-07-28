@@ -1,5 +1,5 @@
 import logging
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 
 from src.clients.base_client import BaseAPIClient
 from src.models.config_model import SiteConfiguration, DietlyCredentials
@@ -193,18 +193,18 @@ class DietlyClient(BaseAPIClient):
         logging.info(f"Retrieved menu data for delivery {delivery_id}")
         return response
 
-    async def login_and_get_todays_menu(self) -> Optional[Tuple[Dict[str, Any], str]]:
+    async def login_and_get_todays_menu(self) -> Optional[Tuple[List[Tuple[Dict[str, Any], str]], str]]:
         """Main method to login and get today's menu data using direct API calls.
         
         Performs the complete API flow:
         1. Login
         2. Get active orders  
-        3. Get order details
-        4. Find delivery for today
-        5. Get menu for delivery
+        3. Get order details for each order
+        4. Find delivery for today for each order
+        5. Get menu for each delivery
         
         Returns:
-            Tuple of (menu_data, company_name) if menu found, None otherwise
+            Tuple of (list of (menu_data, company_name) tuples, primary_company_name) if menus found, None otherwise
             
         Raises:
             DietlyNoActivePlanError: When user has no active meal plan (acceptable state)
@@ -219,22 +219,51 @@ class DietlyClient(BaseAPIClient):
             # Step 2: Get active orders
             active_orders = await self.get_active_orders()
             
-            # Assume first order (as per instructions)
-            first_order = active_orders[0]
-            logging.info(f"Using order from company: {first_order.companyFullName} (ID: {first_order.orderId})")
-            logging.info(f"Company name for headers: {first_order.companyName}")
+            if not active_orders:
+                raise DietlyNoActivePlanError("No active orders found")
+            
+            logging.info(f"Found {len(active_orders)} active order(s)")
+            
+            # Process all active orders
+            menu_results = []
+            primary_company_name = None
+            
+            for i, order in enumerate(active_orders):
+                try:
+                    logging.info(f"Processing order {i+1}/{len(active_orders)} from company: {order.companyFullName} (ID: {order.orderId})")
+                    logging.info(f"Company name for headers: {order.companyName}")
 
-            # Step 3: Get order details
-            order_details = await self.get_order_details(first_order.orderId, first_order.companyName)
+                    # Step 3: Get order details
+                    order_details = await self.get_order_details(order.orderId, order.companyName)
 
-            # Step 4: Find delivery for current date
-            delivery_id = await self.find_delivery_for_date(order_details, current_date)
+                    # Step 4: Find delivery for current date
+                    delivery_id = await self.find_delivery_for_date(order_details, current_date)
 
-            # Step 5: Get menu for delivery
-            menu_data = await self.get_delivery_menu(delivery_id, first_order.companyName)
-
-            # Return both menu data and company name
-            return menu_data, first_order.companyFullName
+                    # Step 5: Get menu for delivery
+                    menu_data = await self.get_delivery_menu(delivery_id, order.companyName)
+                    
+                    # Store the result with order ID to make it unique
+                    unique_company_name = f"{order.companyFullName} (Order {order.orderId})"
+                    menu_results.append((menu_data, unique_company_name))
+                    
+                    # Use the first order's company name as primary
+                    if primary_company_name is None:
+                        primary_company_name = order.companyFullName
+                        
+                except DietlyNoActivePlanError as e:
+                    logging.warning(f"No delivery found for order {order.orderId} on {current_date}: {e}")
+                    # Continue processing other orders
+                    continue
+                except Exception as e:
+                    logging.error(f"Error processing order {order.orderId}: {e}")
+                    # Continue processing other orders
+                    continue
+            
+            if not menu_results:
+                raise DietlyNoActivePlanError(f"No valid deliveries found for {current_date} across all orders")
+            
+            logging.info(f"Successfully processed {len(menu_results)} order(s) with valid deliveries")
+            return menu_results, primary_company_name
 
         except DietlyNoActivePlanError:
             # Re-raise this as it's an acceptable state that should be handled differently

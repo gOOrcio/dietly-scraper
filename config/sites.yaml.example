@@ -1,0 +1,8 @@
+dietly:
+  base_url: "https://dietly.pl"
+  login_url: "https://dietly.pl/login"
+  api_url: "https://dietly.pl/api"
+
+fitatu:
+  base_url: "https://fitatu.com"
+  api_url: "https://pl-pl.fitatu.com/api" 

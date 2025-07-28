@@ -326,8 +326,17 @@ class FitatuClient(BaseAPIClient):
             return None
 
     async def publish_diet_plan(self, date: str, meal_ids: Dict[str, str], 
-                              meal_weights: Dict[str, int], meal_mapping: Dict[str, str]) -> bool:
-        """Publish the complete diet plan to Fitatu - only add new meals that don't already exist."""
+                              meal_weights: Dict[str, int], meal_mapping: Dict[str, str],
+                              meal_name_mapping: Optional[Dict[str, str]] = None) -> bool:
+        """Publish the complete diet plan to Fitatu - only add new meals that don't already exist.
+        
+        Args:
+            date: Target date
+            meal_ids: Dictionary mapping meal names to product IDs
+            meal_weights: Dictionary mapping meal names to weights
+            meal_mapping: Dictionary mapping meal names to meal types
+            meal_name_mapping: Optional mapping from unique meal names to original meal names for proper mapping
+        """
         existing_plan = await self.get_existing_diet_plan_for_date(date)
         diet_plan = {date: {"dietPlan": {}}}
         
@@ -360,7 +369,10 @@ class FitatuClient(BaseAPIClient):
         # Add only NEW meals (not already in diet plan)
         new_meals_added = 0
         for meal_name, meal_id in meal_ids.items():
-            if str(meal_id) not in existing_product_ids:  # Ensure string comparison
+            # Check if this exact product ID already exists in the diet plan
+            product_exists = str(meal_id) in existing_product_ids
+            
+            if not product_exists:  # Only skip if this exact product ID already exists
                 logging.debug(f"Adding new meal '{meal_name}' with product ID {meal_id} to diet plan")
                 
                 # Validate that the product ID looks reasonable (not empty, not None)
@@ -368,8 +380,11 @@ class FitatuClient(BaseAPIClient):
                     logging.error(f"Skipping '{meal_name}' - invalid product ID: {meal_id}")
                     continue
                 
+                # Use original meal name for mapping if available
+                original_meal_name = meal_name_mapping.get(meal_name, meal_name) if meal_name_mapping else meal_name
+                
                 self._add_meal_to_diet_plan(
-                    diet_plan[date]["dietPlan"], meal_name, meal_id,
+                    diet_plan[date]["dietPlan"], original_meal_name, meal_id,
                     meal_weights.get(meal_name, DEFAULT_MEAL_WEIGHT),
                     existing_plan, meal_mapping
                 )
@@ -387,7 +402,7 @@ class FitatuClient(BaseAPIClient):
     def _add_meal_to_diet_plan(self, diet_plan: Dict[str, Any], meal_name: str, meal_id: str, 
                              meal_weight: int, existing_plan: Dict[str, Any], 
                              meal_mapping: Dict[str, str]) -> None:
-        """Add a meal to the diet plan while avoiding duplicates.
+        """Add a meal to the diet plan, allowing multiple meals of the same type.
         
         Args:
             diet_plan: Diet plan dictionary to modify
@@ -401,7 +416,7 @@ class FitatuClient(BaseAPIClient):
             logging.info(f"Skipping '{meal_name}' - not supported meal by mapping configuration")
             return
 
-        # Check for duplicates in this meal category
+        # Check for exact duplicates (same product ID) in this meal category to avoid adding the same meal twice
         if mapped_key in existing_plan:
             existing_product_ids = {item.get("productId") for item in existing_plan[mapped_key] 
                                   if not item.get("deletedAt")}

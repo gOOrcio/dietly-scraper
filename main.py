@@ -3,7 +3,7 @@ import sys
 import time
 from datetime import datetime
 from enum import Enum
-from typing import NamedTuple, List, Dict
+from typing import NamedTuple, List, Dict, Tuple
 
 from pydantic import ValidationError
 from src.clients.dietly_client import DietlyClient, DietlyClientAPIError, DietlyNoActivePlanError
@@ -88,12 +88,23 @@ async def process_user_meal_sync(user, sites) -> UserSyncResult:
                     if not api_result:
                         return UserSyncResult(user.name, SyncStatus.NO_MENU, NO_MENU_MEALS_MSG)
 
-                    menu_data, company_name = api_result
-                    if not is_valid_api_response(menu_data):
+                    menu_results, company_name = api_result
+                    if not menu_results:
                         return UserSyncResult(user.name, SyncStatus.NO_MENU, NO_MENU_MEALS_MSG)
 
-                    menu = MenuResponse.model_validate(menu_data)
-                    log_json("info", f"Retrieved menu data", user=user.name, company=company_name)
+                    # Process all menus from all orders
+                    all_menus = []
+                    for menu_data, order_company_name in menu_results:
+                        if not is_valid_api_response(menu_data):
+                            logging.warning(f"Invalid API response for order from {order_company_name}")
+                            continue
+                        
+                        menu = MenuResponse.model_validate(menu_data)
+                        all_menus.append((menu, order_company_name))
+                        log_json("info", f"Retrieved menu data", user=user.name, company=order_company_name)
+
+                    if not all_menus:
+                        return UserSyncResult(user.name, SyncStatus.NO_MENU, NO_MENU_MEALS_MSG)
 
                 except DietlyNoActivePlanError:
                     return UserSyncResult(user.name, SyncStatus.SUCCESS, NO_ACTIVE_PLAN_MSG)
@@ -105,7 +116,7 @@ async def process_user_meal_sync(user, sites) -> UserSyncResult:
                         error_category=error_category
                     )
 
-                if await sync_menu_to_fitatu(menu, company_name, user, sites):
+                if await sync_menu_to_fitatu(all_menus, company_name, user, sites):
                     return UserSyncResult(user.name, SyncStatus.SUCCESS, "Menu synced successfully")
                 else:
                     return UserSyncResult(
@@ -160,8 +171,8 @@ async def process_user_meal_sync(user, sites) -> UserSyncResult:
     return result
 
 
-async def sync_menu_to_fitatu(menu: MenuResponse, company_name: str, user, sites) -> bool:
-    """Synchronize menu data to Fitatu service."""
+async def sync_menu_to_fitatu(all_menus: List[Tuple[MenuResponse, str]], company_name: str, user, sites) -> bool:
+    """Synchronize menu data to Fitatu service from multiple orders."""
     try:
         fitatu = FitatuClient(sites.fitatu, user.fitatu_credentials, company_name)
         
@@ -169,18 +180,51 @@ async def sync_menu_to_fitatu(menu: MenuResponse, company_name: str, user, sites
             logging.error(f"Failed to login to Fitatu for {user.name}")
             return False
 
-        meal_data = await process_menu_meals(menu, fitatu)
-        if not meal_data["meal_ids"]:
-            logging.warning(f"No valid meals found to sync for {user.name}")
+        # Process all menus from all orders
+        all_meal_data = {"meal_ids": {}, "meal_weights": {}}
+        meal_name_mapping = {}  # Maps unique meal names to original meal names
+        
+        for i, (menu, order_company_name) in enumerate(all_menus):
+            meal_data = await process_menu_meals(menu, fitatu)
+            if meal_data["meal_ids"]:
+                # Merge meal data from this order with existing data
+                # If there are duplicate meal names, create unique names for the second order
+                for meal_name, product_id in meal_data["meal_ids"].items():
+                    unique_meal_name = meal_name
+                    counter = 1
+                    
+                    # If this meal name already exists, create a unique name
+                    while unique_meal_name in all_meal_data["meal_ids"]:
+                        # Extract order number from company name if it exists
+                        if " (Order " in order_company_name:
+                            # Already has order info, just add counter
+                            unique_meal_name = f"{meal_name} ({order_company_name.split(' (Order ')[0]} #{counter})"
+                        else:
+                            # Add order info
+                            unique_meal_name = f"{meal_name} ({order_company_name})"
+                        counter += 1
+                        if counter > 10:  # Prevent infinite loop
+                            break
+                    
+                    all_meal_data["meal_ids"][unique_meal_name] = product_id
+                    all_meal_data["meal_weights"][unique_meal_name] = meal_data["meal_weights"].get(meal_name, 100)
+                    meal_name_mapping[unique_meal_name] = meal_name  # Map unique name back to original
+                
+                logging.info(f"Processed {len(meal_data['meal_ids'])} meals from order {order_company_name}")
+            else:
+                logging.warning(f"No valid meals found in order from {order_company_name}")
+
+        if not all_meal_data["meal_ids"]:
+            logging.warning(f"No valid meals found to sync for {user.name} from any order")
             return False
 
         success = await fitatu.publish_diet_plan(
-            get_current_date_iso(), meal_data["meal_ids"], 
-            meal_data["meal_weights"], MEAL_MAPPING
+            get_current_date_iso(), all_meal_data["meal_ids"], 
+            all_meal_data["meal_weights"], MEAL_MAPPING, meal_name_mapping
         )
 
         if success:
-            logging.info(f"Successfully synced {len(meal_data['meal_ids'])} meals to Fitatu for {user.name}")
+            logging.info(f"Successfully synced {len(all_meal_data['meal_ids'])} total meals to Fitatu for {user.name}")
         return success
 
     except Exception as e:
