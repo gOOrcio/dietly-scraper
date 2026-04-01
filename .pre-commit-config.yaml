@@ -21,7 +21,7 @@ repos:
     hooks:
       - id: pip-audit
         name: pip-audit
-        entry: uvx pip-audit
+        entry: uv run --with pip-audit pip-audit
         language: system
         pass_filenames: false
         stages: [pre-push]

@@ -24,7 +24,7 @@ jobs:
         run: uv sync --frozen
 
       - name: Security audit
-        run: uvx pip-audit
+        run: uv run --with pip-audit pip-audit
 
       - name: Compute SonarQube branch args
         id: sonar_args
