@@ -8,7 +8,7 @@ on:
 
 jobs:
   sonarqube:
-    uses: gOOrcio/sonarqube-sandbox/.github/workflows/reusable-sonar-python.yml@main
+    uses: gOOrcio/sonarqube-sandbox/.github/workflows/reusable-sonar-python.yml@1a1aedc42a80414ed7c5a9a84aab11c4ee55cafd
     with:
       project_key: dietly-scraper
     secrets:
