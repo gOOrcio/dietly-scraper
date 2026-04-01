@@ -8,8 +8,43 @@ on:
 
 jobs:
   sonarqube:
-    uses: gOOrcio/sonarqube-sandbox/.github/workflows/reusable-sonar-python.yml@1a1aedc42a80414ed7c5a9a84aab11c4ee55cafd
-    with:
-      project_key: dietly-scraper
-    secrets:
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    name: SonarQube Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@6dfebec6ddbcd197e02256fbdf54deb334fb7f06 # v2
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Security audit
+        run: uvx pip-audit
+
+      - name: Compute SonarQube branch args
+        id: sonar_args
+        run: |
+          if [[ "$EVENT" == "pull_request" ]]; then
+            echo "args=-Dsonar.pullrequest.key=${PR_NUMBER} -Dsonar.pullrequest.branch=${PR_BRANCH} -Dsonar.pullrequest.base=${PR_BASE}" >> "$GITHUB_OUTPUT"
+          else
+            echo "args=-Dsonar.branch.name=${REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BRANCH: ${{ github.head_ref }}
+          PR_BASE: ${{ github.base_ref }}
+          REF_NAME: ${{ github.ref_name }}
+
+      - uses: sonarsource/sonarqube-scan-action@13990a695682794b53148ff9f6a8b6e22e43955e # v3
+        with:
+          args: >
+            -Dsonar.projectKey=dietly-scraper
+            -Dsonar.host.url=https://sonarqube.mati-lab.online
+            ${{ steps.sonar_args.outputs.args }}
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
