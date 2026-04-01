@@ -17,15 +17,15 @@ jobs:
       run_id: ${{ github.run_id }}
     
     steps:
-    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
     
     - name: Set up Python
-      uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c # v4
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
       with:
         python-version: '3.12'
     
     - name: Install uv
-      uses: astral-sh/setup-uv@6dfebec6ddbcd197e02256fbdf54deb334fb7f06 # v2
+      uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
     
     - name: Install dependencies
       run: uv sync
@@ -38,7 +38,7 @@ jobs:
     
     - name: Run dietly to fitatu sync
       id: sync
-      uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3
+      uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
       with:
         timeout_minutes: 15
         max_attempts: 3
