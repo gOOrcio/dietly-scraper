@@ -23,7 +23,7 @@ MEAL_MAPPING = {
     "II śniadanie": "second_breakfast",
     "Obiad": "dinner",
     "Podwieczorek": "snack",
-    "Kolacja": "supper"
+    "Kolacja": "supper",
 }
 
 # API response status codes
@@ -31,7 +31,7 @@ SUCCESS_STATUS_CODES = (200, 201, 202)
 
 # JWT token constants
 JWT_MIN_PARTS = 2
-BASE64_PADDING = '='
+BASE64_PADDING = "="
 
 # Logging format
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
@@ -50,7 +50,7 @@ DIETLY_COMMON_HEADERS = {
     "User-Agent": USER_AGENT,
     "Sec-Fetch-Site": "same-origin",
     "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Dest": "empty"
+    "Sec-Fetch-Dest": "empty",
 }
 
 # Headers constants
@@ -75,7 +75,7 @@ FITATU_HEADERS_BASE = {
     "APP-UUID": "64c2d1b0-c8ad-11e8-8956-0242ac120008",
     "APP-Location-Country": "PL",
     "APP-Version": "4.2.1",
-    "API-Key": "FITATU-MOBILE-APP"
+    "API-Key": "FITATU-MOBILE-APP",
 }
 
 # Dietly constants

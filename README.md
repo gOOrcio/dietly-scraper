@@ -141,7 +141,7 @@ The workflow sends notifications based on exit codes:
 
 **Smart notifications:**
 - 🍽️ **No menu found** = No notification (normal on weekends)
-- ⚠️ **Some users failed** = Warning notification  
+- ⚠️ **Some users failed** = Warning notification
 - ❌ **All users failed** = Critical notification
 
 ### 🥈 Docker (Cross-platform)
@@ -222,7 +222,7 @@ The application distinguishes between different scenarios:
 2025-05-29 09:55:15,850 - INFO - Starting Dietly sync for 2025-05-29
 2025-05-29 09:55:15,851 - INFO - Processing user: User1
 2025-05-29 09:55:25,157 - INFO - No menu data found for User1 on 2025-05-29 - sync skipped (acceptable)
-2025-05-29 09:55:25,157 - INFO - Processing user: User2  
+2025-05-29 09:55:25,157 - INFO - Processing user: User2
 2025-05-29 09:55:35,260 - ERROR - Failed to login to Fitatu for User2
 2025-05-29 09:55:35,260 - INFO - === SYNC SUMMARY ===
 2025-05-29 09:55:35,260 - INFO - Total users: 2
@@ -501,7 +501,7 @@ asyncio.run(test())
 See [improvements.md](improvements.md) for planned enhancements:
 
 - 🔄 **Retry logic** with exponential backoff
-- 📊 **Monitoring** with metrics and alerting  
+- 📊 **Monitoring** with metrics and alerting
 - 🧪 **Testing** with comprehensive test suite
 - 🔐 **Security** improvements and secrets rotation
 - 🚀 **Performance** optimizations and caching

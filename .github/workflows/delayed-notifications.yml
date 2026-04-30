@@ -23,7 +23,7 @@ jobs:
             status: 'completed',
             per_page: 1
           });
-          
+
           if (runs.total_count > 0) {
             const lastRun = runs.workflow_runs[0];
             const { data: logs } = await github.rest.actions.downloadWorkflowRunLogs({
@@ -31,9 +31,9 @@ jobs:
               repo: context.repo.repo,
               run_id: lastRun.id
             });
-            
+
             const logContent = Buffer.from(logs, 'base64').toString();
-            
+
             if (logContent.includes('💥 All users failed to sync')) {
               console.log(`::error::Dietly Sync Completely Failed in previous run (${lastRun.id})`);
               console.log(`::error::All users failed to sync at ${lastRun.updated_at}`);
@@ -41,8 +41,8 @@ jobs:
               console.log(`::warning::Dietly Sync Partially Failed in previous run (${lastRun.id})`);
               console.log(`::warning::Some users failed to sync at ${lastRun.updated_at}`);
             }
-            
+
             if (logContent.includes('💥') || logContent.includes('⚠️')) {
               console.log(`::error::Check run details: ${lastRun.html_url}`);
             }
-          } 
+          }

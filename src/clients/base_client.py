@@ -5,7 +5,12 @@ from typing import Dict, Any, Optional, Union
 
 import httpx
 
-from src.utils.constants import DEFAULT_REQUEST_TIMEOUT, LOG_FORMAT, RETRYABLE_STATUS_CODES, RETRY_MAX_ATTEMPTS
+from src.utils.constants import (
+    DEFAULT_REQUEST_TIMEOUT,
+    LOG_FORMAT,
+    RETRYABLE_STATUS_CODES,
+    RETRY_MAX_ATTEMPTS,
+)
 from src.utils.utils import calculate_retry_delay
 
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
@@ -35,18 +40,20 @@ class BaseAPIClient(ABC):
                 # Ensure compression is handled properly
                 headers={
                     "Accept-Encoding": "gzip, deflate, br",
-                    "Accept": "application/json, */*"
-                }
+                    "Accept": "application/json, */*",
+                },
             )
         return self._client
 
-    def _is_retryable_error(self, exception: Exception, status_code: Optional[int] = None) -> bool:
+    def _is_retryable_error(
+        self, exception: Exception, status_code: Optional[int] = None
+    ) -> bool:
         """Check if an error should trigger a retry.
-        
+
         Args:
             exception: The exception that occurred
             status_code: HTTP status code if available
-            
+
         Returns:
             True if the error should trigger a retry
         """
@@ -57,24 +64,26 @@ class BaseAPIClient(ABC):
             httpx.NetworkError,
             httpx.PoolTimeout,
             ConnectionError,
-            OSError
+            OSError,
         )
-        
+
         if isinstance(exception, retryable_exceptions):
             return True
-            
+
         # HTTP status codes that should be retried
         if status_code and status_code in RETRYABLE_STATUS_CODES:
             return True
-            
+
         return False
 
-    def _decode_response_safely(self, response: httpx.Response) -> Optional[Dict[str, Any]]:
+    def _decode_response_safely(
+        self, response: httpx.Response
+    ) -> Optional[Dict[str, Any]]:
         """Safely decode response with fallback encoding handling and compression support.
-        
+
         Args:
             response: HTTP response object
-            
+
         Returns:
             Decoded JSON data or None if decoding fails
         """
@@ -82,127 +91,138 @@ class BaseAPIClient(ABC):
         if not response.content:
             logging.warning("Empty response content")
             return None
-            
+
         # Check content type and encoding
-        content_type = response.headers.get('content-type', '').lower()
-        content_encoding = response.headers.get('content-encoding', '')
-        
+        content_type = response.headers.get("content-type", "").lower()
+        content_encoding = response.headers.get("content-encoding", "")
+
         # Debug logging for compression issues
-        logging.debug(f"Response headers - Content-Type: {content_type}, Content-Encoding: {content_encoding}")
+        logging.debug(
+            f"Response headers - Content-Type: {content_type}, Content-Encoding: {content_encoding}"
+        )
         logging.debug(f"Response content length: {len(response.content)} bytes")
-        
+
         # If it's not JSON content, log and return None
-        if content_type and 'json' not in content_type:
+        if content_type and "json" not in content_type:
             logging.warning(f"Non-JSON content type: {content_type}")
-        
+
         try:
             # First try the standard JSON parsing (UTF-8) - httpx handles compression automatically
             return response.json()
         except UnicodeDecodeError as e:
-            logging.warning(f"UTF-8 decoding failed: {e}. Trying alternative encodings...")
-            
+            logging.warning(
+                f"UTF-8 decoding failed: {e}. Trying alternative encodings..."
+            )
+
             # If there's compression, log it
             if content_encoding:
-                logging.error(f"Response has compression '{content_encoding}' but failed to decode - httpx may not have decompressed properly")
-            
+                logging.error(
+                    f"Response has compression '{content_encoding}' but failed to decode - httpx may not have decompressed properly"
+                )
+
             # Try common alternative encodings
-            for encoding in ['latin-1', 'windows-1252', 'iso-8859-1']:
+            for encoding in ["latin-1", "windows-1252", "iso-8859-1"]:
                 try:
                     # Get raw bytes and decode with alternative encoding
                     content_bytes = response.content
                     decoded_text = content_bytes.decode(encoding)
-                    
+
                     # Try to parse as JSON
                     import json
+
                     return json.loads(decoded_text)
-                    
+
                 except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
                     continue
-            
+
             # If all encodings fail, check if it might be compressed data that wasn't decompressed
             content_preview = response.content[:20]
-            if content_preview.startswith(b'\x1f\x8b') or content_preview.startswith(b'PK'):
-                logging.error("Response appears to be compressed but wasn't decompressed properly")
-            elif content_preview.startswith(b'!'):
+            if content_preview.startswith(b"\x1f\x8b") or content_preview.startswith(
+                b"PK"
+            ):
+                logging.error(
+                    "Response appears to be compressed but wasn't decompressed properly"
+                )
+            elif content_preview.startswith(b"!"):
                 logging.error("Response appears to be in unknown binary format")
-            
-            logging.error(f"Failed to decode response with any encoding. Content type: {content_type}")
+
+            logging.error(
+                f"Failed to decode response with any encoding. Content type: {content_type}"
+            )
             logging.error(f"Response content preview: {response.content[:100]}")
             return None
-            
+
         except (ValueError, TypeError, json.JSONDecodeError) as e:
             # JSON parsing errors or other issues
             logging.error(f"JSON parsing failed: {e}")
             logging.error(f"Content type: {content_type}")
-            logging.error(f"Response content preview: {response.content[:100] if response.content else 'empty'}")
+            logging.error(
+                f"Response content preview: {response.content[:100] if response.content else 'empty'}"
+            )
             return None
 
     async def _make_request_with_retry(
-            self,
-            method: str,
-            url: str,
-            data: Optional[Union[str, Dict[str, Any]]] = None
+        self, method: str, url: str, data: Optional[Union[str, Dict[str, Any]]] = None
     ) -> Optional[Dict[str, Any]]:
         """Make HTTP request with retry logic and exponential backoff.
-        
+
         Args:
             method: HTTP method (GET, POST, etc.)
             url: Request URL
             data: Request data (for POST requests)
-            
+
         Returns:
             Response data as dict if successful, None otherwise
         """
         last_exception = None
-        
+
         for attempt in range(RETRY_MAX_ATTEMPTS):
             try:
                 result = await self._make_single_request(method, url, data)
                 return result
-                
+
             except Exception as e:
                 last_exception = e
-                status_code = getattr(e, 'response', None)
-                if hasattr(status_code, 'status_code'):
+                status_code = getattr(e, "response", None)
+                if hasattr(status_code, "status_code"):
                     status_code = status_code.status_code
                 else:
                     status_code = None
-                
+
                 should_retry = self._is_retryable_error(e, status_code)
-                
+
                 if not should_retry or attempt == RETRY_MAX_ATTEMPTS - 1:
                     # Don't retry on last attempt or non-retryable error
                     logging.error(f"Request failed for {method.upper()} {url}: {e}")
                     return None
-                
+
                 delay = calculate_retry_delay(attempt)
                 logging.warning(
                     f"Request {method.upper()} {url} failed (attempt {attempt + 1}/{RETRY_MAX_ATTEMPTS}): {e}. "
                     f"Retrying in {delay:.2f} seconds..."
                 )
                 await asyncio.sleep(delay)
-        
+
         # This should never be reached, but handle it gracefully
         if last_exception:
-            logging.error(f"Request failed for {method.upper()} {url}: {last_exception}")
+            logging.error(
+                f"Request failed for {method.upper()} {url}: {last_exception}"
+            )
         return None
 
     async def _make_single_request(
-            self,
-            method: str,
-            url: str,
-            data: Optional[Union[str, Dict[str, Any]]] = None
+        self, method: str, url: str, data: Optional[Union[str, Dict[str, Any]]] = None
     ) -> Optional[Dict[str, Any]]:
         """Make a single HTTP request without retry logic.
-        
+
         Args:
             method: HTTP method (GET, POST, etc.)
             url: Request URL
             data: Request data (for POST requests)
-            
+
         Returns:
             Response data as dict if successful, None otherwise
-            
+
         Raises:
             Exception: Various HTTP and network exceptions
         """
@@ -226,7 +246,7 @@ class BaseAPIClient(ABC):
             raise httpx.HTTPStatusError(
                 f"HTTP {response.status_code} error: {error_text[:200]}",
                 request=response.request,
-                response=response
+                response=response,
             )
         elif response.status_code >= 400:
             # Non-retryable client errors (4xx) - don't retry
@@ -238,13 +258,10 @@ class BaseAPIClient(ABC):
         return self._decode_response_safely(response)
 
     async def _make_request(
-            self,
-            method: str,
-            url: str,
-            data: Optional[Union[str, Dict[str, Any]]] = None
+        self, method: str, url: str, data: Optional[Union[str, Dict[str, Any]]] = None
     ) -> Optional[Dict[str, Any]]:
         """Make HTTP request with error handling and logging.
-        
+
         This is the main entry point that includes retry logic.
         """
         return await self._make_request_with_retry(method, url, data)
@@ -253,7 +270,9 @@ class BaseAPIClient(ABC):
         """Make GET request."""
         return await self._make_request("GET", url, **kwargs)
 
-    async def post(self, url: str, data: Optional[Union[str, Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
+    async def post(
+        self, url: str, data: Optional[Union[str, Dict[str, Any]]] = None
+    ) -> Optional[Dict[str, Any]]:
         """Make POST request."""
         return await self._make_request("POST", url, data)
 

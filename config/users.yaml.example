@@ -6,4 +6,4 @@ users:
     fitatu_credentials:
       email: "your-fitatu-email@example.com"
       password: "your-fitatu-password"
-      api_secret: "your-fitatu-api-secret" 
+      api_secret: "your-fitatu-api-secret"

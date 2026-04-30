@@ -1,17 +1,27 @@
 repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+
   - repo: https://github.com/gitleaks/gitleaks
-    rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e  # v8.30.1
+    rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e  # v8.30.1  # pragma: allowlist secret
     hooks:
       - id: gitleaks
 
   - repo: https://github.com/Yelp/detect-secrets
-    rev: 01886c8a910c64595c47f186ca1ffc0b77fa5458  # v1.5.0
+    rev: 01886c8a910c64595c47f186ca1ffc0b77fa5458  # v1.5.0  # pragma: allowlist secret
     hooks:
       - id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: 25a8c8da6c24a3b9a1a536e2674683dd0eead5d6  # v0.11.2
+    rev: 25a8c8da6c24a3b9a1a536e2674683dd0eead5d6  # v0.11.2  # pragma: allowlist secret
     hooks:
       - id: ruff
         args: [--fix]

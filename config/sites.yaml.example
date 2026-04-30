@@ -5,4 +5,4 @@ dietly:
 
 fitatu:
   base_url: "https://fitatu.com"
-  api_url: "https://pl-pl.fitatu.com/api" 
+  api_url: "https://pl-pl.fitatu.com/api"

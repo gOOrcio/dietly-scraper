@@ -15,27 +15,27 @@ jobs:
     outputs:
       status: ${{ steps.sync.outputs.status }}
       run_id: ${{ github.run_id }}
-    
+
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c # v4
       with:
         python-version: '3.12'
-    
+
     - name: Install uv
       uses: astral-sh/setup-uv@6dfebec6ddbcd197e02256fbdf54deb334fb7f06 # v2
-    
+
     - name: Install dependencies
       run: uv sync
-    
+
     - name: Create config files from secrets
       run: |
         mkdir -p config
         echo '${{ secrets.USERS_YAML }}' > config/users.yaml
         echo '${{ secrets.SITES_YAML }}' > config/sites.yaml
-    
+
     - name: Run dietly to fitatu sync
       id: sync
       uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3
@@ -49,7 +49,7 @@ jobs:
           uv run python main.py > sync.log
           EXIT_CODE=$?
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
-          
+
           # Set job status based on exit code
           if [ $EXIT_CODE -eq 0 ]; then
             echo "✅ All users processed successfully"
@@ -61,16 +61,16 @@ jobs:
             echo "status=failure" >> $GITHUB_OUTPUT
             exit 1  # Only fail for complete failure to trigger retry
           fi
-          
+
           exit $EXIT_CODE
-    
+
     - name: Generate Summary
       if: always()
       run: |
         # Extract JSON logs and create summary
         echo "## Dietly Sync Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        
+
         # Get the final summary log entry
         SUMMARY=$(grep -o '{.*"message":"Sync summary".*}' sync.log | tail -n 1)
         if [ ! -z "$SUMMARY" ]; then
@@ -81,7 +81,7 @@ jobs:
           NO_MENU=$(echo $SUMMARY | jq -r '.no_menu')
           FAILED=$(echo $SUMMARY | jq -r '.failed')
           DURATION=$(echo $SUMMARY | jq -r '.total_duration_ms')
-          
+
           echo "### Statistics" >> $GITHUB_STEP_SUMMARY
           echo "- Total Users: $TOTAL_USERS" >> $GITHUB_STEP_SUMMARY
           echo "- Successful Syncs: $SUCCESSFUL" >> $GITHUB_STEP_SUMMARY
@@ -89,12 +89,12 @@ jobs:
           echo "- No Menu: $NO_MENU" >> $GITHUB_STEP_SUMMARY
           echo "- Failed: $FAILED" >> $GITHUB_STEP_SUMMARY
           echo "- Total Duration: ${DURATION}ms" >> $GITHUB_STEP_SUMMARY
-          
+
           # Error categories
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Error Categories" >> $GITHUB_STEP_SUMMARY
           echo $SUMMARY | jq -r '.error_categories | to_entries[] | "- \(.key): \(.value)"' >> $GITHUB_STEP_SUMMARY
-          
+
           # Failed users
           if [ "$FAILED" -gt 0 ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
@@ -104,23 +104,23 @@ jobs:
         else
           echo "⚠️ No summary data available" >> $GITHUB_STEP_SUMMARY
         fi
-    
+
     - name: Handle partial success
       if: steps.sync.outputs.exit_code == '1'
       run: |
         echo "::warning::Some users failed to sync. Check logs for details."
         exit 0  # Don't fail the job for partial success
-    
+
     - name: Handle success
       if: steps.sync.outputs.exit_code == '0'
       run: |
         echo "✅ All users processed successfully"
-        
+
   notify-failures:
     needs: sync-meals
     runs-on: ubuntu-latest
     if: always() && (needs.sync-meals.result == 'failure' || needs.sync-meals.outputs.status == 'failure')
-    
+
     steps:
     - name: Check workflow status
       run: |

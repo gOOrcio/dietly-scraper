@@ -3,12 +3,15 @@ import json
 import logging
 import random
 from datetime import datetime
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Dict, Any
 from urllib.parse import quote
 
 from src.utils.constants import (
-    JWT_MIN_PARTS, BASE64_PADDING, RETRY_BASE_DELAY, 
-    RETRY_MAX_DELAY, RETRY_BACKOFF_MULTIPLIER, LOG_FORMAT
+    BASE64_PADDING,
+    RETRY_BASE_DELAY,
+    RETRY_MAX_DELAY,
+    RETRY_BACKOFF_MULTIPLIER,
+    LOG_FORMAT,
 )
 
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
@@ -17,16 +20,16 @@ logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 def extract_user_id_from_jwt_token(token: str) -> Optional[str]:
     """Extract user ID from JWT token payload."""
     try:
-        payload = token.split('.')[1]
+        payload = token.split(".")[1]
         # Add padding if needed
         payload += BASE64_PADDING * (4 - len(payload) % 4)
         decoded = json.loads(base64.b64decode(payload))
-        
-        user_id = decoded.get('id') or decoded.get('userIdentifier')
+
+        user_id = decoded.get("id") or decoded.get("userIdentifier")
         if user_id:
             logging.info(f"Successfully extracted user ID: {user_id}")
             return str(user_id)
-        
+
         logging.error("User ID not found in JWT payload")
         return None
     except Exception as e:
@@ -70,33 +73,35 @@ def safe_convert_to_float(value: Any, default: float = 0.0) -> float:
 
 def build_api_url(base_url: str, *path_parts: str) -> str:
     """Build API URL by combining base URL and path parts."""
-    parts = [base_url.rstrip('/')] + [quote(str(part).strip('/')) for part in path_parts]
-    return '/'.join(parts)
+    parts = [base_url.rstrip("/")] + [
+        quote(str(part).strip("/")) for part in path_parts
+    ]
+    return "/".join(parts)
 
 
 def build_query_url(base_url: str, **params: Any) -> str:
     """Build URL with query parameters."""
     if not params:
         return base_url
-    
+
     query_parts = []
     for key, value in params.items():
         if isinstance(value, list):
             query_parts.extend(f"{key}[]={quote(str(item))}" for item in value)
         else:
             query_parts.append(f"{key}={quote(str(value))}")
-    
+
     separator = "&" if "?" in base_url else "?"
     return f"{base_url}{separator}{'&'.join(query_parts)}"
 
 
 def calculate_retry_delay(attempt: int, jitter: bool = True) -> float:
     """Calculate exponential backoff delay with optional jitter."""
-    delay = min(RETRY_BASE_DELAY * (RETRY_BACKOFF_MULTIPLIER ** attempt), RETRY_MAX_DELAY)
-    
+    delay = min(RETRY_BASE_DELAY * (RETRY_BACKOFF_MULTIPLIER**attempt), RETRY_MAX_DELAY)
+
     if jitter:
         jitter_range = delay * 0.2
         delay += random.uniform(-jitter_range, jitter_range)
         delay = max(0.1, delay)
-    
+
     return delay
