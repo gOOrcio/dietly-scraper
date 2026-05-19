@@ -43,7 +43,7 @@ class Diet(BaseModel):
     dietOptionName: str
     tierName: Optional[str]
     calories: int
-    dietImage: str
+    dietImage: Optional[str] = None
     menuConfiguration: bool
     menuConfigurationWithTiers: bool
 
