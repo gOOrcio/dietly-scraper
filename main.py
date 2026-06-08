@@ -314,6 +314,15 @@ async def process_menu_meals(menu: MenuResponse, fitatu: FitatuClient) -> dict:
         if meal.deliveryMealId is None:
             continue
 
+        # Some company plans return null nutrition for their meals (e.g. when the
+        # plan hides macros). We can't post a meal to Fitatu without macros, so
+        # skip it rather than failing the whole user's sync.
+        if meal.nutrition is None:
+            logging.warning(
+                f"Skipping meal '{meal.mealName}' — no nutrition data from Dietly"
+            )
+            continue
+
         product = convert_menu_meal_to_nutrition_product(meal, fitatu.brand)
         meal_type_english = MEAL_MAPPING.get(meal.mealName, "breakfast")
 
