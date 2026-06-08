@@ -315,13 +315,14 @@ async def process_menu_meals(menu: MenuResponse, fitatu: FitatuClient) -> dict:
             continue
 
         # Some company plans return null nutrition for their meals (e.g. when the
-        # plan hides macros). We can't post a meal to Fitatu without macros, so
-        # skip it rather than failing the whole user's sync.
+        # plan hides macros). We still sync the meal — with zero placeholder
+        # macros — so the dish name lands in Fitatu and the user can fill in real
+        # values by hand from the label, rather than dropping the meal entirely.
         if meal.nutrition is None:
             logging.warning(
-                f"Skipping meal '{meal.mealName}' — no nutrition data from Dietly"
+                f"Meal '{meal.mealName}' has no nutrition from Dietly — "
+                "syncing name with placeholder macros to fill in manually"
             )
-            continue
 
         product = convert_menu_meal_to_nutrition_product(meal, fitatu.brand)
         meal_type_english = MEAL_MAPPING.get(meal.mealName, "breakfast")
@@ -330,7 +331,9 @@ async def process_menu_meals(menu: MenuResponse, fitatu: FitatuClient) -> dict:
             product, today, meal_type_english
         ):
             meal_ids[meal.mealName] = product_id
-            meal_weights[meal.mealName] = int(meal.nutrition.weight)
+            # Default to a 100 g serving when the plan exposes no nutrition.
+            weight = meal.nutrition.weight if meal.nutrition else 100
+            meal_weights[meal.mealName] = int(weight)
             logging.info(f"Processed meal: {meal.mealName}")
         else:
             logging.error(f"Failed to create/find product for {meal.mealName}")

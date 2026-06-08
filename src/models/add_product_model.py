@@ -142,6 +142,24 @@ def convert_menu_meal_to_nutrition_product(
     """
     nutrition = menu_meal.nutrition
 
+    # Some company plans (e.g. UrbanFits) expose no macros at all — nutrition is
+    # null for every meal. Rather than drop those meals, post the dish name with
+    # zero placeholder macros and a default 100 g serving so it still lands in
+    # Fitatu; the user fills in real values by hand from the meal's label.
+    if nutrition is None:
+        return NutritionProduct(
+            name=menu_meal.menuMealName,
+            brand=brand,
+            barcode=None,
+            energy=0.0,
+            fat=0.0,
+            carbohydrate=0.0,
+            protein=0.0,
+            measures=[
+                NutritionMeasure(measureKey="PACKAGE", measureUnit="g", weight="100")
+            ],
+        )
+
     # Create measures from weight if available
     measures = []
     if hasattr(nutrition, "weight") and nutrition.weight:
