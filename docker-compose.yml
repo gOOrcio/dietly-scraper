@@ -13,7 +13,7 @@ services:
 
   # Cron scheduler container
   scheduler:
-    image: alpine:3.21@sha256:c3f8e73fdb79deaebaa2037150150191b9dcbfba68b4a46d70103204c53f4709
+    image: alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./logs:/logs
