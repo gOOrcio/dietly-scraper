@@ -1,4 +1,4 @@
-FROM python:3.12-slim@sha256:3d5ed973e45820f5ba5e46bd065bd88b3a504ff0724d85980dcd05eab361fcf4
+FROM python:3.12-slim@sha256:02108f5d322dd89f1c9e552442c25acb0543dfdbc455693a5599624f20d9155d
 # Install system dependencies for httpx and general Python packages
 RUN apt-get update && apt-get install -y \
     curl \
