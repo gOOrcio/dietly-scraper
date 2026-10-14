@@ -84,7 +84,7 @@ jobs:
         if: failure()
         env:
           NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
-          RUN_URL: ${{ gitea.server_url }}/${{ gitea.repository }}/actions/runs/${{ gitea.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         shell: bash
         run: |
           [ -z "$NTFY_TOKEN" ] && { echo "NTFY_TOKEN not set, skipping"; exit 0; }
