@@ -1,13 +1,5 @@
-# Default timeouts and limits
+# HTTP timeout (seconds)
 DEFAULT_REQUEST_TIMEOUT = 30
-DEFAULT_SCRAPING_TIMEOUT = 15
-DEFAULT_RETRY_COUNT = 3
-DEFAULT_WAIT_TIMEOUT = 500
-SEARCH_PAGE_LIMIT = 1
-
-# HTTP timeouts
-HTTP_REQUEST_TIMEOUT = 30
-HTTP_CONNECTION_TIMEOUT = 10
 
 # Exit codes for main script
 EXIT_CODE_SUCCESS = 0  # All users processed successfully
@@ -26,11 +18,7 @@ MEAL_MAPPING = {
     "Kolacja": "supper",
 }
 
-# API response status codes
-SUCCESS_STATUS_CODES = (200, 201, 202)
-
 # JWT token constants
-JWT_MIN_PARTS = 2
 BASE64_PADDING = "="
 
 # Logging format
@@ -83,7 +71,6 @@ FITATU_HEADERS_BASE = {
 FITATU_MAX_PRODUCT_NAME_LENGTH = 255
 
 # Dietly constants
-DIETLY_DEFAULT_API_PREFIX = "/api/company/general/menus/delivery/"
 DIETLY_PROFILE_PATH = "/profil-dietly"
 
 # Spring Security CSRF (double-submit cookie) required on the login POST
@@ -92,8 +79,6 @@ DIETLY_XSRF_HEADER = "X-XSRF-TOKEN"
 
 # Error messages
 USER_ID_NOT_SET_MSG = "User ID not set. Please login first."
-LOGIN_FAILED_MSG = "Login failed with status {status}"
-API_RESPONSE_NOT_CAPTURED_MSG = "API response not captured within {timeout} seconds."
 NO_MENU_MEALS_MSG = "No menu meals found for the given date."
 NO_ACTIVE_PLAN_MSG = "No active meal plan found for today."
 

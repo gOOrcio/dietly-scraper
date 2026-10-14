@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any, Tuple, List
 from urllib.parse import urlencode
 
 from src.clients.base_client import BaseAPIClient
-from src.models.config_model import SiteConfiguration, DietlyCredentials
+from src.models.config_model import DietlySiteConfiguration, DietlyCredentials
 from src.models.dietly_order_models import ActiveOrdersResponse, OrderDetails
 from src.utils.constants import (
     DIETLY_COMMON_HEADERS,
@@ -16,10 +16,6 @@ from src.utils.constants import (
     DIETLY_XSRF_HEADER,
 )
 from src.utils.utils import get_current_date_iso, build_api_url
-
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
 
 
 class DietlyClientAPIError(Exception):
@@ -37,7 +33,7 @@ class DietlyNoActivePlanError(Exception):
 class DietlyClient(BaseAPIClient):
     """Client for scraping Dietly API to retrieve menu data."""
 
-    def __init__(self, site: SiteConfiguration, credentials: DietlyCredentials):
+    def __init__(self, site: DietlySiteConfiguration, credentials: DietlyCredentials):
         super().__init__()
         self.site = site
         self.credentials = credentials
@@ -198,7 +194,7 @@ class DietlyClient(BaseAPIClient):
     @staticmethod
     async def find_delivery_for_date(
         order_details: OrderDetails, target_date: str
-    ) -> Optional[int]:
+    ) -> int:
         """Find delivery ID for the given date.
 
         Args:
@@ -206,7 +202,7 @@ class DietlyClient(BaseAPIClient):
             target_date: Target date to find delivery for
 
         Returns:
-            Delivery ID if found, None otherwise
+            Delivery ID for the date
 
         Raises:
             DietlyNoActivePlanError: If no delivery found for the date (acceptable state)
@@ -288,7 +284,7 @@ class DietlyClient(BaseAPIClient):
 
             # Process all active orders
             menu_results = []
-            primary_company_name = None
+            primary_company_name: Optional[str] = None
 
             for i, order in enumerate(active_orders):
                 try:
@@ -333,7 +329,7 @@ class DietlyClient(BaseAPIClient):
                     # Continue processing other orders
                     continue
 
-            if not menu_results:
+            if not menu_results or primary_company_name is None:
                 raise DietlyNoActivePlanError(
                     f"No valid deliveries found for {current_date} across all orders"
                 )

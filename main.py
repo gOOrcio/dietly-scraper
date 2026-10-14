@@ -1,7 +1,8 @@
+import json
 import logging
 import sys
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import NamedTuple, List, Tuple
 
@@ -23,13 +24,15 @@ from src.utils.constants import (
     NO_MENU_MEALS_MSG,
     NO_ACTIVE_PLAN_MSG,
     RETRY_MAX_ATTEMPTS,
+    LOG_FORMAT,
 )
 from src.utils.utils import get_current_date_iso, is_valid_api_response
 
-# Configure logging with JSON format for better parsing
+# The only logging setup in the app. Structured events from log_json() are
+# emitted as one JSON object per line so the workflow can grep and jq them.
 logging.basicConfig(
     level=logging.INFO,
-    format="%(message)s",  # We'll format messages as JSON
+    format=LOG_FORMAT,
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 
@@ -59,14 +62,17 @@ class UserSyncResult(NamedTuple):
 
 
 def log_json(level: str, message: str, **kwargs):
-    """Log a message in JSON format for better parsing."""
+    """Log a structured event as a single-line JSON object."""
     log_entry = {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "level": level,
         "message": message,
         **kwargs,
     }
-    logging.info(log_entry)
+    # Compact separators: the workflow greps for '"message":"Sync summary"'.
+    logging.info(
+        json.dumps(log_entry, ensure_ascii=False, default=str, separators=(",", ":"))
+    )
 
 
 def categorize_error(error_msg: str) -> ErrorCategory:
@@ -85,20 +91,6 @@ def categorize_error(error_msg: str) -> ErrorCategory:
     elif "network" in error_msg:
         return ErrorCategory.NETWORK
     return ErrorCategory.UNKNOWN
-
-
-def is_transient_error(error_msg: str) -> bool:
-    """Check if an error message indicates a transient failure."""
-    transient_indicators = [
-        "503",
-        "502",
-        "500",
-        "504",
-        "connection",
-        "timeout",
-        "network",
-    ]
-    return any(indicator in error_msg.lower() for indicator in transient_indicators)
 
 
 async def process_user_meal_sync(user, sites) -> UserSyncResult:
@@ -209,11 +201,7 @@ async def process_user_meal_sync(user, sites) -> UserSyncResult:
             or attempt == RETRY_MAX_ATTEMPTS - 1
         ):
             duration_ms = int((time.time() - start_time) * 1000)
-            return UserSyncResult(
-                *result[:-2],  # Keep all fields except duration and retry
-                duration_ms=duration_ms,
-                retry_count=retry_count,
-            )
+            return result._replace(duration_ms=duration_ms, retry_count=retry_count)
 
         log_json(
             "warning",
@@ -239,8 +227,10 @@ async def sync_menu_to_fitatu(
             return False
 
         # Process all menus from all orders
-        all_meal_data = {"meal_ids": {}, "meal_weights": {}}
-        meal_name_mapping = {}  # Maps unique meal names to original meal names
+        all_meal_data: dict[str, dict] = {"meal_ids": {}, "meal_weights": {}}
+        meal_name_mapping: dict[
+            str, str
+        ] = {}  # Maps unique meal names to original meal names
 
         for i, (menu, order_company_name) in enumerate(all_menus):
             meal_data = await process_menu_meals(menu, fitatu)

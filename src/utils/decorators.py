@@ -1,6 +1,6 @@
 import logging
 import functools
-from typing import Callable, Any
+from typing import Callable
 
 from src.utils.constants import USER_ID_NOT_SET_MSG
 
@@ -34,23 +34,6 @@ def log_api_call(operation: str):
             except Exception as e:
                 logging.error(f"{operation} error: {e}")
                 raise
-
-        return wrapper
-
-    return decorator
-
-
-def handle_api_errors(default_return: Any = None):
-    """Decorator to handle common API errors consistently."""
-
-    def decorator(func: Callable) -> Callable:
-        @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
-            try:
-                return await func(*args, **kwargs)
-            except Exception as e:
-                logging.error(f"{func.__name__} failed: {e}")
-                return default_return
 
         return wrapper
 

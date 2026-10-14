@@ -49,9 +49,13 @@ cp config/users.yaml.example config/users.yaml   # fill in locally, never commit
 cp config/sites.yaml.example config/sites.yaml
 uv run python main.py
 pre-commit run --all-files                       # ruff, ruff-format, gitleaks, detect-secrets
+uv run --extra dev pytest                        # unit tests (pure logic only)
+uvx mypy . --ignore-missing-imports              # Gitea CI runs this; keep it clean
 ```
 
-- Python 3.12, `uv`, `httpx`, `pydantic` v2. There is **no test suite**. Verify changes by running against the real APIs, or by replaying a JSON response captured from a run log.
+- Python 3.12, `uv`, `httpx`, `pydantic` v2. `tests/` covers only the pure logic (name cleaning, payload mapping, error categories, exit codes, log format). Anything touching the HTTP flow still has to be verified against the real APIs (see the workflow-on-a-branch trick above) or by replaying a JSON response captured from a run log.
+- Gitea CI (`gooral/ci-workflows` python-quality) runs ruff, then mypy, then pytest, and pytest only runs if mypy passes.
+- Logging is configured once, in `main.py`. Don't add `logging.basicConfig` to modules. `log_json()` writes compact single-line JSON, and the workflow's summary step greps it.
 - Pydantic models should strictly validate **only the fields we consume**. Dietly regularly sends nulls or new shapes in fields we ignore (see PRs #8–#10).
 - Note: the `login_url` in `sites.yaml.example` (`/login`) is stale. Production uses `https://dietly.pl/api/auth/login`.
 

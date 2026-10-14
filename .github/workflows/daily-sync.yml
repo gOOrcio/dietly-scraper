@@ -44,10 +44,12 @@ jobs:
         max_attempts: 3
         retry_wait_seconds: 60
         warning_on_retry: true
+        shell: bash
         command: |
           set +e  # Don't exit on non-zero exit codes
-          uv run python main.py > sync.log
-          EXIT_CODE=$?
+          # tee: keep the log visible in the job output AND in sync.log for the summary step
+          uv run python main.py 2>&1 | tee sync.log
+          EXIT_CODE=${PIPESTATUS[0]}
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
 
           # Set job status based on exit code

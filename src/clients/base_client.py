@@ -1,5 +1,6 @@
-import logging
 import asyncio
+import json
+import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, Union
 
@@ -7,13 +8,10 @@ import httpx
 
 from src.utils.constants import (
     DEFAULT_REQUEST_TIMEOUT,
-    LOG_FORMAT,
     RETRYABLE_STATUS_CODES,
     RETRY_MAX_ATTEMPTS,
 )
 from src.utils.utils import calculate_retry_delay
-
-logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 
 
 class BaseAPIClient(ABC):
@@ -128,8 +126,6 @@ class BaseAPIClient(ABC):
                     decoded_text = content_bytes.decode(encoding)
 
                     # Try to parse as JSON
-                    import json
-
                     return json.loads(decoded_text)
 
                 except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
@@ -149,16 +145,14 @@ class BaseAPIClient(ABC):
             logging.error(
                 f"Failed to decode response with any encoding. Content type: {content_type}"
             )
-            logging.error(f"Response content preview: {response.content[:100]}")
+            logging.error(f"Response content preview: {response.content[:100]!r}")
             return None
 
         except (ValueError, TypeError, json.JSONDecodeError) as e:
             # JSON parsing errors or other issues
             logging.error(f"JSON parsing failed: {e}")
             logging.error(f"Content type: {content_type}")
-            logging.error(
-                f"Response content preview: {response.content[:100] if response.content else 'empty'}"
-            )
+            logging.error(f"Response content preview: {response.content[:100]!r}")
             return None
 
     async def _make_request_with_retry(
@@ -183,11 +177,8 @@ class BaseAPIClient(ABC):
 
             except Exception as e:
                 last_exception = e
-                status_code = getattr(e, "response", None)
-                if hasattr(status_code, "status_code"):
-                    status_code = status_code.status_code
-                else:
-                    status_code = None
+                response = getattr(e, "response", None)
+                status_code = getattr(response, "status_code", None)
 
                 should_retry = self._is_retryable_error(e, status_code)
 

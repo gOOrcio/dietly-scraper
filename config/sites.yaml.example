@@ -1,6 +1,6 @@
 dietly:
   base_url: "https://dietly.pl"
-  login_url: "https://dietly.pl/login"
+  login_url: "https://dietly.pl/api/auth/login"
   api_url: "https://dietly.pl/api"
 
 fitatu:

@@ -4,12 +4,11 @@ from typing import Optional, Dict, Any
 
 from src.clients.base_client import BaseAPIClient
 from src.models.add_product_model import NutritionProduct
-from src.models.config_model import SiteConfiguration, FitatuCredentials
+from src.models.config_model import FitatuSiteConfiguration, FitatuCredentials
 from src.utils.constants import (
     FITATU_HEADERS_BASE,
     DEFAULT_MEAL_WEIGHT,
     USER_ID_NOT_SET_MSG,
-    LOG_FORMAT,
 )
 from src.utils.decorators import require_user_id, log_api_call
 from src.utils.utils import (
@@ -20,15 +19,13 @@ from src.utils.utils import (
     build_query_url,
 )
 
-logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
-
 
 class FitatuClient(BaseAPIClient):
     """Client for interacting with Fitatu API for diet plan management."""
 
     def __init__(
         self,
-        sites_config: SiteConfiguration,
+        sites_config: FitatuSiteConfiguration,
         credentials: FitatuCredentials,
         brand: str,
     ):
@@ -43,7 +40,6 @@ class FitatuClient(BaseAPIClient):
         # Build API URLs from sites config
         self.login_url = build_api_url(self.api_base, "login")
         self.products_url = build_api_url(self.api_base, "products")
-        self.search_base_url = build_api_url(self.api_base, "search", "food", "user")
         self.diet_plan_base_url = build_api_url(self.api_base, "diet-plan")
         self.diet_activity_base_url = build_api_url(
             self.api_base, "diet-and-activity-plan"
@@ -115,14 +111,6 @@ class FitatuClient(BaseAPIClient):
         """
         return build_api_url(self.diet_activity_base_url, user_id, "day", date)
 
-    @property
-    def headers(self):
-        return self._headers
-
-    def update_headers(self, new_headers: dict):
-        """Update or add headers for future requests."""
-        self._headers.update(new_headers)
-
     @log_api_call("Login")
     async def login(self) -> Optional[Dict[str, Any]]:
         """Login to Fitatu and extract user ID from JWT token.
@@ -149,7 +137,7 @@ class FitatuClient(BaseAPIClient):
             return None
 
         self.update_headers({"Authorization": f"Bearer {self.token}"})
-        logging.info(f"Successfully logged in with user ID: {self.user_id}")
+        logging.info("Successfully logged in to Fitatu")
         return response
 
     async def add_nutrition_product(
@@ -411,7 +399,7 @@ class FitatuClient(BaseAPIClient):
             meal_name_mapping: Optional mapping from unique meal names to original meal names for proper mapping
         """
         existing_plan = await self.get_existing_diet_plan_for_date(date)
-        diet_plan = {date: {"dietPlan": {}}}
+        diet_plan: Dict[str, Dict[str, Any]] = {date: {"dietPlan": {}}}
 
         # Get all current product IDs from today's menu
         current_product_ids = set(meal_ids.values())

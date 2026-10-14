@@ -49,11 +49,24 @@ class SiteConfiguration(BaseModel):
     api_url: Optional[str] = Field(default=None, description="API base URL")
 
 
+class DietlySiteConfiguration(SiteConfiguration):
+    """Dietly needs the site root (API paths hang off it) and the login URL."""
+
+    base_url: str = Field(description="Base URL of the service")
+    login_url: str = Field(description="Login endpoint URL")
+
+
+class FitatuSiteConfiguration(SiteConfiguration):
+    """Fitatu derives every endpoint, login included, from the API base URL."""
+
+    api_url: str = Field(description="API base URL")
+
+
 class SitesConfiguration(BaseModel):
     """Configuration for all sites/services."""
 
-    dietly: SiteConfiguration = Field(description="Dietly service configuration")
-    fitatu: SiteConfiguration = Field(description="Fitatu service configuration")
+    dietly: DietlySiteConfiguration = Field(description="Dietly service configuration")
+    fitatu: FitatuSiteConfiguration = Field(description="Fitatu service configuration")
 
     @classmethod
     def load_from_file(

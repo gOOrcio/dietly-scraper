@@ -4,7 +4,7 @@
 
 # Dietly Menu Synchronizer
 
-A production-ready Python application that automatically syncs meal data from [Dietly.pl](https://dietly.pl) to [Fitatu.com](https://fitatu.com) using modern APIs and Playwright browser automation. Features clean architecture, comprehensive error handling, and multiple deployment options.
+A production-ready Python application that automatically syncs meal data from [Dietly.pl](https://dietly.pl) to [Fitatu.com](https://fitatu.com) by calling both services' web APIs directly with httpx. Features clean architecture, comprehensive error handling, and multiple deployment options.
 
 ## 🚀 Features
 
@@ -54,7 +54,7 @@ cp config/sites.yaml.example config/sites.yaml
 ```yaml
 dietly:
   base_url: "https://dietly.pl"
-  login_url: "https://dietly.pl/login"
+  login_url: "https://dietly.pl/api/auth/login"
   api_url: "https://dietly.pl/api"
 
 fitatu:
@@ -354,9 +354,9 @@ The application follows clean architecture principles:
 
 - **`main.py`**: Entry point and orchestration
 - **`src/clients/`**: External service integrations
-  - `DietlyClient`: Handles Dietly login and API interception
+  - `DietlyClient`: Dietly login (with XSRF token) and menu retrieval
   - `FitatuClient`: Manages Fitatu API operations with Viking-style logic
-  - `BaseAPIClient`: Shared HTTP functionality using Playwright
+  - `BaseAPIClient`: Shared httpx client with retry/backoff on 5xx
 - **`src/models/`**: Data structures and validation using Pydantic
 - **`src/utils/`**: Shared utilities and constants
 
@@ -406,22 +406,6 @@ ERROR: Login failed with status 401
 - Check if 2FA is enabled (not supported)
 - Ensure API secret is valid for Fitatu
 
-#### Playwright Browser Issues
-
-```
-ERROR: Browser executable not found
-```
-
-**Solutions:**
-```bash
-# Reinstall browsers
-uv run playwright install chromium
-uv run playwright install-deps
-
-# For Docker
-docker-compose build --no-cache
-```
-
 #### Rate Limiting
 
 ```
@@ -437,21 +421,20 @@ ERROR: HTTP 429 error: Too Many Requests
 
 ```
 ERROR: Request failed for GET https://...
-playwright._impl._errors.TimeoutError: Page.goto: Timeout 45000ms exceeded
 ```
 
 **Solutions:**
 - Check internet connectivity
 - Verify site URLs in `config/sites.yaml`
 - Increase timeout values in `src/utils/constants.py`
-- **Note**: Navigation timeouts are often treated as "no menu available" (acceptable)
+- **Note**: HTTP timeouts are often treated as "no menu available" (acceptable)
 
 #### Error Handling & Resilience
 
 The application includes comprehensive error handling:
 
 - **All users processed**: Even if one user fails, others continue processing
-- **Graceful timeouts**: Playwright navigation timeouts treated as "no menu found"
+- **Graceful timeouts**: HTTP timeouts treated as "no menu found"
 - **Detailed logging**: Each error includes user context and specific failure reason
 - **Fallback handling**: Multiple layers of error catching prevent script crashes
 

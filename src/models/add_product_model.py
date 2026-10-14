@@ -166,7 +166,6 @@ def convert_menu_meal_to_nutrition_product(
         return NutritionProduct(
             name=clean_meal_name(menu_meal.menuMealName),
             brand=brand,
-            barcode=None,
             energy=0.0,
             fat=0.0,
             carbohydrate=0.0,
@@ -176,9 +175,9 @@ def convert_menu_meal_to_nutrition_product(
             ],
         )
 
-    # Create measures from weight if available
+    # Every other nutrient field defaults to None; Fitatu accepts them as null.
     measures = []
-    if hasattr(nutrition, "weight") and nutrition.weight:
+    if nutrition.weight:
         measures.append(
             NutritionMeasure(
                 measureKey="PACKAGE", measureUnit="g", weight=str(nutrition.weight)
@@ -188,7 +187,6 @@ def convert_menu_meal_to_nutrition_product(
     return NutritionProduct(
         name=clean_meal_name(menu_meal.menuMealName),
         brand=brand,
-        barcode=None,
         energy=nutrition.calories,
         fat=nutrition.fat,
         saturatedFat=nutrition.saturatedFattyAcids,
@@ -197,36 +195,5 @@ def convert_menu_meal_to_nutrition_product(
         fiber=nutrition.dietaryFiber,
         protein=nutrition.protein,
         salt=nutrition.salt,
-        animalProtein=None,
-        vegetableProtein=None,
-        monounsaturatedFat=None,
-        polyunsaturatedFat=None,
-        omega3=None,
-        omega6=None,
-        cholesterol=None,
-        caffeine=None,
-        vitaminA=None,
-        vitaminB1=None,
-        vitaminB2=None,
-        vitaminB5=None,
-        vitaminB6=None,
-        vitaminB7=None,
-        folicAcid=None,
-        vitaminB12=None,
-        vitaminC=None,
-        vitaminD=None,
-        vitaminE=None,
-        vitaminPP=None,
-        vitaminK=None,
-        zinc=None,
-        phosphorus=None,
-        iodine=None,
-        magnesium=None,
-        copper=None,
-        potassium=None,
-        selenium=None,
-        sodium=None,
-        calcium=None,
-        iron=None,
         measures=measures,
     )

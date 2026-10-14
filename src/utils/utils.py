@@ -11,10 +11,7 @@ from src.utils.constants import (
     RETRY_BASE_DELAY,
     RETRY_MAX_DELAY,
     RETRY_BACKOFF_MULTIPLIER,
-    LOG_FORMAT,
 )
-
-logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 
 
 def extract_user_id_from_jwt_token(token: str) -> Optional[str]:
@@ -27,7 +24,7 @@ def extract_user_id_from_jwt_token(token: str) -> Optional[str]:
 
         user_id = decoded.get("id") or decoded.get("userIdentifier")
         if user_id:
-            logging.info(f"Successfully extracted user ID: {user_id}")
+            logging.debug("Extracted user ID from JWT")
             return str(user_id)
 
         logging.error("User ID not found in JWT payload")
@@ -67,10 +64,6 @@ def safe_convert_to_int(value: Any, default: int = 0) -> int:
     return safe_convert(value, int, default)
 
 
-def safe_convert_to_float(value: Any, default: float = 0.0) -> float:
-    return safe_convert(value, float, default)
-
-
 def build_api_url(base_url: str, *path_parts: str) -> str:
     """Build API URL by combining base URL and path parts."""
     parts = [base_url.rstrip("/")] + [
@@ -84,7 +77,7 @@ def build_query_url(base_url: str, **params: Any) -> str:
     if not params:
         return base_url
 
-    query_parts = []
+    query_parts: list[str] = []
     for key, value in params.items():
         if isinstance(value, list):
             query_parts.extend(f"{key}[]={quote(str(item))}" for item in value)
