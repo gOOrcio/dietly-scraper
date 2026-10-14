@@ -63,16 +63,33 @@ class FitatuSiteConfiguration(SiteConfiguration):
 
 
 class SitesConfiguration(BaseModel):
-    """Configuration for all sites/services."""
+    """Configuration for all sites/services.
 
-    dietly: DietlySiteConfiguration = Field(description="Dietly service configuration")
-    fitatu: FitatuSiteConfiguration = Field(description="Fitatu service configuration")
+    The URLs are public, so they ship as defaults; config/sites.yaml is only
+    needed to override them (e.g. when Dietly moves its login endpoint).
+    """
+
+    dietly: DietlySiteConfiguration = Field(
+        default_factory=lambda: DietlySiteConfiguration(
+            base_url="https://dietly.pl",
+            login_url="https://dietly.pl/api/auth/login",
+            api_url="https://dietly.pl/api",
+        ),
+        description="Dietly service configuration",
+    )
+    fitatu: FitatuSiteConfiguration = Field(
+        default_factory=lambda: FitatuSiteConfiguration(
+            base_url="https://fitatu.com",
+            api_url="https://pl-pl.fitatu.com/api",
+        ),
+        description="Fitatu service configuration",
+    )
 
     @classmethod
     def load_from_file(
         cls, file_path: str = "config/sites.yaml"
     ) -> "SitesConfiguration":
-        """Load sites configuration from file.
+        """Load sites configuration from file, or the built-in defaults if absent.
 
         Args:
             file_path: Path to sites configuration file
@@ -80,6 +97,8 @@ class SitesConfiguration(BaseModel):
         Returns:
             Validated sites configuration
         """
+        if not Path(file_path).exists():
+            return cls()
         return load_configuration_from_file(cls, file_path)
 
 

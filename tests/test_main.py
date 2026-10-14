@@ -48,3 +48,11 @@ def test_log_json_emits_one_parseable_json_object(caplog):
     assert payload["message"] == "Sync summary"
     assert payload["user"] == "Mateusz Góral"
     assert '"message":"Sync summary"' in caplog.records[-1].getMessage()
+
+
+def test_sites_config_defaults_when_file_missing(tmp_path):
+    from src.models.config_model import SitesConfiguration
+
+    sites = SitesConfiguration.load_from_file(str(tmp_path / "missing.yaml"))
+    assert sites.dietly.login_url == "https://dietly.pl/api/auth/login"
+    assert sites.fitatu.api_url == "https://pl-pl.fitatu.com/api"

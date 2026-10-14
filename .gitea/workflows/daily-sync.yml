@@ -1,0 +1,99 @@
+name: daily-sync
+
+# Daily Dietly → Fitatu sync on the homelab Gitea runner (moved off GitHub
+# Actions 2026-10-14: home egress IP instead of Azure, private logs).
+#
+# Repo secrets (Settings → Actions → Secrets):
+#   USERS_YAML     full content of config/users.yaml (multi-line is fine)
+#   NTFY_TOKEN     write-only ntfy token for topic homelab-alerts (optional)
+#   KUMA_PUSH_URL  Uptime Kuma push URL for the dead-man monitor (optional)
+# Site URLs are built-in defaults; add config/sites.yaml only to override them.
+
+on:
+  schedule:
+    - cron: "0 2 * * *"  # 02:00 UTC = 03:00/04:00 Warsaw
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        # Image python3 is Ubuntu 24.04's (PEP 668); the job container is
+        # throwaway, so overriding the externally-managed guard is safe.
+        run: python3 -m pip install --break-system-packages uv==0.11.2
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Write config from secrets
+        env:
+          USERS_YAML: ${{ secrets.USERS_YAML }}
+        run: |
+          if [ -z "$USERS_YAML" ]; then
+            echo "::error::USERS_YAML secret is not set"
+            exit 1
+          fi
+          mkdir -p config
+          umask 077
+          printf '%s\n' "$USERS_YAML" > config/users.yaml
+
+      - name: Sync Dietly → Fitatu
+        id: sync
+        shell: bash
+        run: |
+          set -o pipefail
+          # The script retries transient errors per user; no workflow-level
+          # retry, which would re-sync users that already succeeded.
+          uv run python main.py 2>&1 | tee sync.log
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          SUMMARY=$(grep -o '{.*"message":"Sync summary".*}' sync.log | tail -n 1 || true)
+          if [ -z "$SUMMARY" ]; then
+            echo "No sync summary found (script crashed before finishing?)"
+            exit 0
+          fi
+          echo "$SUMMARY" | jq -r '"users=\(.total_users) ok=\(.successful_syncs) no_plan=\(.no_active_plan) no_menu=\(.no_menu) failed=\(.failed) duration=\(.total_duration_ms)ms"'
+          grep -o '{.*"status":"failed".*}' sync.log \
+            | jq -r '"FAILED \(.user): \(.message) (\(.error_category))"' || true
+
+      - name: Heartbeat to Uptime Kuma
+        # Dead-man switch: Kuma alerts if no "up" push arrives within its
+        # interval, which also covers the runner VM being down at 02:00.
+        if: success()
+        env:
+          KUMA_PUSH_URL: ${{ secrets.KUMA_PUSH_URL }}
+        run: |
+          [ -z "$KUMA_PUSH_URL" ] && { echo "KUMA_PUSH_URL not set, skipping"; exit 0; }
+          curl -fsS --max-time 15 -o /dev/null "${KUMA_PUSH_URL}?status=up&msg=OK" || echo "Kuma push failed"
+
+      - name: Notify ntfy on failure
+        if: failure()
+        env:
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          RUN_URL: ${{ gitea.server_url }}/${{ gitea.repository }}/actions/runs/${{ gitea.run_id }}
+        shell: bash
+        run: |
+          [ -z "$NTFY_TOKEN" ] && { echo "NTFY_TOKEN not set, skipping"; exit 0; }
+          FAILED=$(grep -o '{.*"status":"failed".*}' sync.log 2>/dev/null \
+            | jq -r '"\(.user): \(.message)"' 2>/dev/null || true)
+          curl -fsS --max-time 15 -o /dev/null \
+            -H "Authorization: Bearer $NTFY_TOKEN" \
+            -H "Title: Dietly sync failed" \
+            -H "Tags: warning,fork_and_knife" \
+            -H "Click: $RUN_URL" \
+            -d "${FAILED:-Sync job failed, see run log}" \
+            https://ntfy.mati-lab.online/homelab-alerts || echo "ntfy publish failed"

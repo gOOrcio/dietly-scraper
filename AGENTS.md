@@ -2,28 +2,19 @@
 
 Daily one-shot Python script: for each configured user it logs into **Dietly.pl** (catering app), reads today's menu for the purchased diet, and pushes the meals + nutrition into the user's **Fitatu** diary. No browser automation — plain `httpx` against both sites' private web APIs (the README's Playwright mentions are stale).
 
-## Where things run (important — differs from the rest of mati-lab)
+## Where things run
 
-- **Source of truth / origin:** Gitea `gooral/dietly-scraper` (`git@gitea-ssh.mati-lab.online`). **PRs are opened and merged on Gitea** (`tea ... --repo gooral/dietly-scraper --login gitea.mati-lab.online`). Gitea CI (`.gitea/workflows/ci.yml`) runs only the shared quality workflows (ruff, yaml, duplication, secrets).
-- **Production sync runs on GitHub Actions**, not on the Gitea runners — this is the only mati-lab project like that. Repo: **`gOOrcio/dietly-scraper`**, which Gitea push-mirrors into (branches too).
-  - Use **`gh`**, not `tea`, for anything Actions-related. The local `origin` is Gitea, so `gh` can't infer the repo — always pass `-R gOOrcio/dietly-scraper`.
-  - To test a fix with the real credentials (which exist only as GitHub secrets), push the branch to Gitea, wait for the mirror, then run `gh workflow run daily-sync.yml -R gOOrcio/dietly-scraper --ref <branch>`. A successful test run really writes to the users' Fitatu diaries, and every failed run adds login attempts toward Dietly's 429 limit, so only trigger it a few times.
-  - The open PRs on GitHub (Dependabot) are mirror leftovers. Use the Gitea PRs.
-- Workflows in `.github/workflows/`:
-  - `daily-sync.yml` — **"Daily Dietly Sync"**, cron `0 2 * * *` UTC plus `workflow_dispatch`. Writes `config/users.yaml` / `config/sites.yaml` from secrets `USERS_YAML` / `SITES_YAML`, then runs `uv run python main.py` inside `nick-fields/retry` (3 attempts, 60 s apart). The command ends with `exit $EXIT_CODE`, so a **partial failure (exit 1) also triggers retries**, re-syncs the users that succeeded, and leaves the run red.
-  - `delayed-notifications.yml` — 09:00 UTC; greps the last sync run's logs for 💥/⚠️ and emits annotations.
-  - `sonar.yml` (pre-commit + pip-audit + SonarQube at `sonarqube.mati-lab.online`), `scorecard.yml`, `dependabot-auto-merge.yml`.
-
-### Inspecting sync runs
-
-```bash
-gh run list  -R gOOrcio/dietly-scraper --workflow daily-sync.yml --limit 20 \
-  --json databaseId,createdAt,conclusion
-gh run view <id> -R gOOrcio/dietly-scraper --log > run.log
-gh workflow run daily-sync.yml -R gOOrcio/dietly-scraper   # manual trigger
-```
-
-A red run usually means one user failed (exit 1 or 2), and a green run can still mean nobody's menu synced ("No active plan" counts as success). Read the per-user lines in the log. Each user's result is a Python-dict log line with a `status` key, followed by a `Sync summary` line.
+- **Everything lives on Gitea** `gooral/dietly-scraper` (`git@gitea-ssh.mati-lab.online`). PRs are opened and merged there (`tea ... --repo gooral/dietly-scraper --login gitea.mati-lab.online`).
+- `.gitea/workflows/ci.yml` runs the shared quality workflows from `gooral/ci-workflows`: ruff, then mypy, then pytest, plus yaml, duplication and secrets checks.
+- `.gitea/workflows/daily-sync.yml` is the **production sync**. It runs on the homelab runner at cron `0 2 * * *` UTC, or on demand:
+  `tea actions workflows dispatch daily-sync.yml --repo gooral/dietly-scraper --login gitea.mati-lab.online --ref <branch>`.
+  - Secrets: `USERS_YAML` (required), `NTFY_TOKEN` (alerts go to `homelab-alerts`), `KUMA_PUSH_URL` (dead-man heartbeat). <!-- pragma: allowlist secret -->
+  - Site URLs are built-in defaults in `SitesConfiguration`.
+  - A failed run (exit 1 = some users failed, exit 2 = all failed) triggers an ntfy alert. A successful run pings Kuma.
+  - There is no workflow-level retry: the script already retries transient errors per user.
+  - Requests leave from the home IP. Dietly answers repeated failed logins with 429, so don't loop manual runs.
+- **GitHub `gOOrcio/dietly-scraper` is only a push mirror.** It used to run the sync until 2026-10-14. Actions are disabled there and `.github/` was deleted. Don't use `gh` for this project.
+- A green run can still mean nobody's menu synced ("No active plan" counts as success). Read the per-user lines (JSON objects with a `status` key) and the `Summary` step.
 
 ## Layout
 
@@ -53,7 +44,7 @@ uv run --extra dev pytest                        # unit tests (pure logic only)
 uvx mypy . --ignore-missing-imports              # Gitea CI runs this; keep it clean
 ```
 
-- Python 3.12, `uv`, `httpx`, `pydantic` v2. `tests/` covers only the pure logic (name cleaning, payload mapping, error categories, exit codes, log format). Anything touching the HTTP flow still has to be verified against the real APIs (see the workflow-on-a-branch trick above) or by replaying a JSON response captured from a run log.
+- Python 3.12, `uv`, `httpx`, `pydantic` v2. `tests/` covers only the pure logic (name cleaning, payload mapping, error categories, exit codes, log format). Anything touching the HTTP flow still has to be verified against the real APIs (dispatch `daily-sync.yml` on your branch, see above) or by replaying a JSON response captured from a run log.
 - Gitea CI (`gooral/ci-workflows` python-quality) runs ruff, then mypy, then pytest, and pytest only runs if mypy passes.
 - Logging is configured once, in `main.py`. Don't add `logging.basicConfig` to modules. `log_json()` writes compact single-line JSON, and the workflow's summary step greps it.
 - Pydantic models should strictly validate **only the fields we consume**. Dietly regularly sends nulls or new shapes in fields we ignore (see PRs #8–#10).
@@ -70,6 +61,6 @@ uvx mypy . --ignore-missing-imports              # Gitea CI runs this; keep it c
 
 ## Rules
 
-- **Never commit secrets.** That covers `config/users.yaml`, real emails/passwords, Fitatu `api_secret`, JWTs, and cookies. Production credentials live only in GitHub secrets `USERS_YAML` / `SITES_YAML`.
+- **Never commit secrets.** That covers `config/users.yaml`, real emails/passwords, Fitatu `api_secret`, JWTs, and cookies. Production credentials live only in the Gitea repo secret `USERS_YAML` (and in the password manager).
 - Branch → PR → user merges (squash). Never force-push.
 - Avoid hammering Dietly/Fitatu from local debugging loops. Repeated logins trigger 429s that also hit the scheduled run.

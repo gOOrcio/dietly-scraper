@@ -8,7 +8,7 @@ A production-ready Python application that automatically syncs meal data from [D
 
 ## 🚀 Features
 
-- **Automated Daily Sync**: Runs via GitHub Actions, Docker, or cron jobs
+- **Automated Daily Sync**: Runs via Gitea Actions (homelab runner), Docker, or cron jobs
 - **Clean Architecture**: Modular design following SOLID principles
 - **Smart Error Handling**: Robust handling of missing meals, API errors, and timeouts
 - **Multi-Layer Retry Logic**: Exponential backoff retry at HTTP and user-sync levels
@@ -31,7 +31,7 @@ A production-ready Python application that automatically syncs meal data from [D
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/dietly-scraper.git
+git clone ssh://git@gitea-ssh.mati-lab.online:30009/gooral/dietly-scraper.git
 cd dietly-scraper
 
 # Install dependencies with uv
@@ -46,10 +46,13 @@ Copy the example files and configure them with your credentials:
 
 ```bash
 cp config/users.yaml.example config/users.yaml
+# optional — only to override the built-in site URLs:
 cp config/sites.yaml.example config/sites.yaml
 ```
 
-### 2. Configure Sites (config/sites.yaml)
+### 2. Configure Sites (optional, config/sites.yaml)
+
+These are the built-in defaults; create the file only to override them.
 
 ```yaml
 dietly:
@@ -95,54 +98,22 @@ tail -f logs/scraper_*.log
 
 ## ⏰ Scheduling Options
 
-### 🥇 GitHub Actions (Recommended)
+### 🥇 Gitea Actions on the homelab runner (production)
 
-**Setup:**
+`.gitea/workflows/daily-sync.yml` runs daily at 02:00 UTC (and on manual dispatch)
+on the self-hosted Gitea runner, so requests leave from the home IP.
 
-1. Push code to GitHub
-2. Add repository secrets:
-   - `USERS_YAML`: Content of your config/users.yaml
-   - `SITES_YAML`: Content of your config/sites.yaml
-3. Workflow runs daily at 2:00 AM UTC automatically
+**Repository secrets** (Gitea → repo → Settings → Actions → Secrets):
+- `USERS_YAML`: full content of `config/users.yaml` (multi-line is fine)
+- `NTFY_TOKEN` *(optional)*: write-only ntfy token; failures are posted to `homelab-alerts`
+- `KUMA_PUSH_URL` *(optional)*: Uptime Kuma push URL; every successful run sends a heartbeat
 
-**Benefits:**
-- ✅ Zero infrastructure management
-- ✅ Free for public repositories
-- ✅ Built-in secrets management
-- ✅ Execution history and logs
+Site URLs are built-in defaults, so `config/sites.yaml` is only needed to override them.
 
-## 📱 Mobile Notifications
-
-```
-🍽️ Dietly Sync Report
-
-⚠️ Status: Partial Success - Some users failed
-📅 Date: 2025-01-20 08:00 UTC
-🔗 Logs: View Details
-Exit Code: 1
-```
-
-### 🥈 **GitHub Mobile App**
-
-**Setup:**
-1. Install **GitHub Mobile App**
-2. Repository **Settings** → **Notifications** → Enable **Actions**
-3. Phone notifications settings → Enable **GitHub**
-
-### 🔧 **Notification Triggers**
-
-The workflow sends notifications based on exit codes:
-
-| Exit Code | Trigger | Message |
-|-----------|---------|---------|
-| **0** | Success | No notification (unless `ALWAYS_NOTIFY=true`) |
-| **1** | Partial failure | ⚠️ Some users failed to sync |
-| **2** | Complete failure | ❌ All users failed to sync |
-
-**Smart notifications:**
-- 🍽️ **No menu found** = No notification (normal on weekends)
-- ⚠️ **Some users failed** = Warning notification
-- ❌ **All users failed** = Critical notification
+**Notifications:**
+- Exit code 1 (some users failed) or 2 (all failed) fails the job → ntfy alert with the failed users
+- No successful run within the Kuma push interval (e.g. the runner was down) → Kuma alert
+- "No active plan" / "no menu" counts as success (normal on weekends)
 
 ### 🥈 Docker (Cross-platform)
 
@@ -248,7 +219,7 @@ The application distinguishes between different scenarios:
 
 - **Local**: `logs/scraper_YYYYMMDD_HHMMSS.log`
 - **Docker**: Container logs via `docker-compose logs`
-- **GitHub Actions**: Workflow run logs in Actions tab
+- **Gitea Actions**: Workflow run logs in the repo's Actions tab
 
 ### Health Checks
 
@@ -288,10 +259,9 @@ The application implements a comprehensive multi-layer retry strategy to handle 
 - **Per-user retry**: Each user's sync is retried independently
 - **Transient error patterns**: "503", "timeout", "connection", "network"
 
-### Infrastructure-Level Retries (GitHub Actions)
-- **Workflow retry**: Up to 3 attempts with 60s intervals
-- **Timeout protection**: 15-minute timeout per attempt
-- **Smart failure handling**: Only retries complete failures (exit code 2)
+### No Workflow-Level Retry
+The workflow deliberately does not re-run the whole sync: that would re-sync users
+that already succeeded. Transient errors are retried by the two layers above.
 
 ### Example Retry Flow
 
@@ -305,17 +275,12 @@ The application implements a comprehensive multi-layer retry strategy to handle 
 2025-06-11 02:31:00 - WARNING: User Kamil sync failed with transient error (attempt 1/3): Dietly API failed: Login failed
 2025-06-11 02:31:00 - INFO: Will retry user Kamil sync in next attempt...
 
-# Infrastructure level: If all users fail
-# GitHub Actions automatically retries the entire workflow
 ```
 
-### Testing Retry Logic
-
-Run the test script to verify retry functionality:
+### Tests
 
 ```bash
-# Test retry mechanisms
-uv run python test_retry.py
+uv run --extra dev pytest
 ```
 
 ## 🛠️ Development
@@ -324,7 +289,7 @@ uv run python test_retry.py
 
 ```
 dietly-scraper/
-├── 📁 .github/workflows/          # GitHub Actions
+├── 📁 .gitea/workflows/           # Gitea Actions (CI + daily sync)
 ├── 📁 config/                     # Configuration files
 │   ├── sites.yaml                 # API endpoints configuration
 │   └── users.yaml                 # User credentials
