@@ -1,5 +1,6 @@
 import logging
 from typing import Optional, Dict, Any, Tuple, List
+from urllib.parse import urlencode
 
 from src.clients.base_client import BaseAPIClient
 from src.models.config_model import SiteConfiguration, DietlyCredentials
@@ -11,6 +12,8 @@ from src.utils.constants import (
     DIETLY_ORDER_DETAILS_ENDPOINT,
     DIETLY_DELIVERY_MENU_ENDPOINT,
     DIETLY_PROFILE_PATH,
+    DIETLY_XSRF_COOKIE,
+    DIETLY_XSRF_HEADER,
 )
 from src.utils.utils import get_current_date_iso, build_api_url
 
@@ -71,6 +74,25 @@ class DietlyClient(BaseAPIClient):
             {"company-id": company_name, "x-launcher-type": "BROWSER_DIETLY"}
         )
 
+    async def _fetch_xsrf_token(self) -> Optional[str]:
+        """Prime the session with Dietly's XSRF-TOKEN cookie.
+
+        Dietly (Spring Security) rejects the login POST with 403 unless the
+        XSRF-TOKEN cookie is echoed back in the X-XSRF-TOKEN header. Any request
+        to the API hands out the cookie, even an unauthenticated 401.
+        """
+        client = await self._get_client()
+        response = await client.get(
+            self.site.login_url,
+            headers={"User-Agent": USER_AGENT, "Referer": self.site.base_url},
+        )
+        token = client.cookies.get(DIETLY_XSRF_COOKIE)
+        if not token:
+            logging.warning(
+                f"No {DIETLY_XSRF_COOKIE} cookie from Dietly (status {response.status_code})"
+            )
+        return token
+
     async def login(self) -> Optional[Dict[str, Any]]:
         """Login to Dietly and return session info.
 
@@ -80,6 +102,8 @@ class DietlyClient(BaseAPIClient):
         Raises:
             DietlyClientAPIError: If login fails
         """
+        xsrf_token = await self._fetch_xsrf_token()
+
         headers = {
             "Content-Type": "application/x-www-form-urlencoded",
             "Accept": "application/json, text/plain, */*",
@@ -87,15 +111,25 @@ class DietlyClient(BaseAPIClient):
             "Referer": self.site.base_url,
             "User-Agent": USER_AGENT,
         }
+        if xsrf_token:
+            headers[DIETLY_XSRF_HEADER] = xsrf_token
 
         self.update_headers(headers)
 
-        login_data = f"username={self.credentials.email}&password={self.credentials.password}&remember-me=false"
+        login_data = urlencode(
+            {
+                "username": self.credentials.email,
+                "password": self.credentials.password,
+                "remember-me": "false",
+            }
+        )
 
         response = await self.post(self.site.login_url, data=login_data)
         if not response:
+            # Deliberately no "connection" wording: categorize_error() would treat
+            # it as transient and re-hammer the login endpoint into a 429.
             raise DietlyClientAPIError(
-                "Login failed - invalid credentials or connection error"
+                "Login failed - credentials rejected or Dietly auth flow changed"
             )
 
         logging.info("Successfully logged in to Dietly")

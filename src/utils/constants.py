@@ -82,6 +82,10 @@ FITATU_HEADERS_BASE = {
 DIETLY_DEFAULT_API_PREFIX = "/api/company/general/menus/delivery/"
 DIETLY_PROFILE_PATH = "/profil-dietly"
 
+# Spring Security CSRF (double-submit cookie) required on the login POST
+DIETLY_XSRF_COOKIE = "XSRF-TOKEN"
+DIETLY_XSRF_HEADER = "X-XSRF-TOKEN"
+
 # Error messages
 USER_ID_NOT_SET_MSG = "User ID not set. Please login first."
 LOGIN_FAILED_MSG = "Login failed with status {status}"
