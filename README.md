@@ -8,7 +8,7 @@ A production-ready Python application that automatically syncs meal data from [D
 
 ## 🚀 Features
 
-- **Automated Daily Sync**: Runs via Gitea Actions (homelab runner), Docker, or cron jobs
+- **Automated Daily Sync**: Runs via Gitea Actions on the homelab runner
 - **Clean Architecture**: Modular design following SOLID principles
 - **Smart Error Handling**: Robust handling of missing meals, API errors, and timeouts
 - **Multi-Layer Retry Logic**: Exponential backoff retry at HTTP and user-sync levels
@@ -88,17 +88,11 @@ users:
 ```bash
 # Run once
 uv run python main.py
-
-# Run with specific log level
-PYTHONPATH=. uv run python main.py
-
-# Check logs
-tail -f logs/scraper_*.log
 ```
 
-## ⏰ Scheduling Options
+## ⏰ Scheduling
 
-### 🥇 Gitea Actions on the homelab runner (production)
+### Gitea Actions on the homelab runner
 
 `.gitea/workflows/daily-sync.yml` runs daily at 02:00 UTC (and on manual dispatch)
 on the self-hosted Gitea runner, so requests leave from the home IP.
@@ -114,32 +108,6 @@ Site URLs are built-in defaults, so `config/sites.yaml` is only needed to overri
 - Exit code 1 (some users failed) or 2 (all failed) fails the job → ntfy alert with the failed users
 - No successful run within the Kuma push interval (e.g. the runner was down) → Kuma alert
 - "No active plan" / "no menu" counts as success (normal on weekends)
-
-### 🥈 Docker (Cross-platform)
-
-```bash
-# Build and start scheduler
-docker-compose up -d scheduler
-
-# View logs
-docker-compose logs -f scheduler
-
-# Manual run
-docker-compose run --rm dietly-scraper
-
-# Stop scheduler
-docker-compose down
-```
-
-### 🥉 Cron Job (Linux/macOS)
-
-```bash
-# Add to crontab (daily at 8 AM)
-crontab -e
-
-# Add line:
-0 8 * * * /full/path/to/your/project/run_scraper.sh
-```
 
 ## 🔧 Configuration Reference
 
@@ -217,8 +185,7 @@ The application distinguishes between different scenarios:
 
 ### Log Locations
 
-- **Local**: `logs/scraper_YYYYMMDD_HHMMSS.log`
-- **Docker**: Container logs via `docker-compose logs`
+- **Local**: stdout
 - **Gitea Actions**: Workflow run logs in the repo's Actions tab
 
 ### Health Checks
@@ -307,8 +274,6 @@ dietly-scraper/
 │       ├── constants.py           # Application constants
 │       └── utils.py               # Helper functions
 ├── 📄 main.py                     # Application entry point
-├── 📄 docker-compose.yml          # Docker configuration
-├── 📄 Dockerfile                  # Docker image definition
 ├── 📄 pyproject.toml              # Dependencies
 └── 📄 README.md                   # This file
 ```

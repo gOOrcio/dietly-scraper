@@ -60,12 +60,10 @@ This document outlines potential improvements and enhancements for the Dietly Sc
 ## 📦 Deployment & Distribution
 
 ### Packaging Improvements
-- [ ] Docker image optimization
 - [ ] Installation scripts for different platforms
 - [ ] Documentation for different deployment scenarios
 
 ### Scheduling & Automation
-- [ ] Improved cron job templates
 - [ ] Windows Task Scheduler support
 - [ ] GitHub Actions workflow templates
 - [ ] Better error notification integration
