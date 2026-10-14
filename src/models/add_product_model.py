@@ -1,8 +1,24 @@
+import re
 from typing import Optional, List
 
 from pydantic import BaseModel, Field
 
 from src.models.menu_response_model import DeliveryMenuMeal
+from src.utils.constants import FITATU_MAX_PRODUCT_NAME_LENGTH
+
+# Some caterers (e.g. GRAMATURA) append the allergen and ingredient lists to the
+# dish name ("... ALERGENY gluten,jaja SKŁADNIKI ..."), pushing it past Fitatu's
+# product-name limit, and Fitatu rejects the product with a bare 400.
+_MEAL_NAME_TAIL = re.compile(r"\s+(ALERGENY|SKŁADNIKI)\b.*$", re.DOTALL)
+
+
+def clean_meal_name(name: str) -> str:
+    """Reduce a Dietly menu meal name to a Fitatu-safe product name."""
+    cleaned = " ".join(_MEAL_NAME_TAIL.sub("", name).split())
+    return (
+        cleaned[:FITATU_MAX_PRODUCT_NAME_LENGTH].rstrip()
+        or name.strip()[:FITATU_MAX_PRODUCT_NAME_LENGTH]
+    )
 
 
 class NutritionMeasure(BaseModel):
@@ -148,7 +164,7 @@ def convert_menu_meal_to_nutrition_product(
     # Fitatu; the user fills in real values by hand from the meal's label.
     if nutrition is None:
         return NutritionProduct(
-            name=menu_meal.menuMealName,
+            name=clean_meal_name(menu_meal.menuMealName),
             brand=brand,
             barcode=None,
             energy=0.0,
@@ -170,7 +186,7 @@ def convert_menu_meal_to_nutrition_product(
         )
 
     return NutritionProduct(
-        name=menu_meal.menuMealName,
+        name=clean_meal_name(menu_meal.menuMealName),
         brand=brand,
         barcode=None,
         energy=nutrition.calories,

@@ -78,6 +78,10 @@ FITATU_HEADERS_BASE = {
     "API-Key": "FITATU-MOBILE-APP",
 }
 
+# Fitatu rejects (HTTP 400) product names longer than this; 214 chars was seen
+# accepted, 280+ rejected, 255 is the likely DB column limit.
+FITATU_MAX_PRODUCT_NAME_LENGTH = 255
+
 # Dietly constants
 DIETLY_DEFAULT_API_PREFIX = "/api/company/general/menus/delivery/"
 DIETLY_PROFILE_PATH = "/profil-dietly"
